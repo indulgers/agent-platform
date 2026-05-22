@@ -49,8 +49,10 @@ export interface AssembledResponse {
   finishReason: 'stop' | 'tool_calls' | 'length' | 'error'
 }
 
+export type ChatProviderName = 'openai' | 'anthropic' | 'deepseek'
+
 export interface ChatProvider {
-  readonly name: 'openai' | 'anthropic'
+  readonly name: ChatProviderName
   stream(opts: ChatStreamOptions): {
     events: AsyncIterable<ProviderEvent>
     /** Resolves once the stream is fully drained — provider implementations populate this. */

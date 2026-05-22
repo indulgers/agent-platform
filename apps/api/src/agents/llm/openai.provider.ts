@@ -4,22 +4,33 @@ import type {
   AssembledResponse,
   AssistantToolCall,
   ChatProvider,
+  ChatProviderName,
   ChatStreamOptions,
   ProviderEvent,
 } from './llm.interface'
 
 @Injectable()
 export class OpenAIProvider implements ChatProvider {
-  readonly name = 'openai' as const
-  private readonly logger = new Logger(OpenAIProvider.name)
-  private readonly client: OpenAI | null
+  readonly name: ChatProviderName = 'openai'
+  protected readonly logger = new Logger(this.constructor.name)
+  protected readonly client: OpenAI | null
 
   constructor() {
-    this.client = process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
+    this.client = this.createClient()
+  }
+
+  /** Override in subclasses to point the OpenAI SDK at a different endpoint. */
+  protected createClient(): OpenAI | null {
+    return process.env.OPENAI_API_KEY ? new OpenAI({ apiKey: process.env.OPENAI_API_KEY }) : null
+  }
+
+  /** Subclasses override to surface the right env var in the error message. */
+  protected get missingKeyMessage(): string {
+    return 'OPENAI_API_KEY not configured'
   }
 
   stream(opts: ChatStreamOptions) {
-    if (!this.client) throw new Error('OPENAI_API_KEY not configured')
+    if (!this.client) throw new Error(this.missingKeyMessage)
 
     const queue: ProviderEvent[] = []
     const waiter: { resolve: (() => void) | null } = { resolve: null }

@@ -19,8 +19,10 @@ const envSchema = z.object({
 
   OPENAI_API_KEY: z.string().optional(),
   ANTHROPIC_API_KEY: z.string().optional(),
+  DEEPSEEK_API_KEY: z.string().optional(),
+  DEEPSEEK_BASE_URL: z.string().url().optional(),
 
-  LLM_DEFAULT_PROVIDER: z.enum(['openai', 'anthropic']).default('anthropic'),
+  LLM_DEFAULT_PROVIDER: z.enum(['openai', 'anthropic', 'deepseek']).default('anthropic'),
   LLM_DEFAULT_MODEL: z.string().default('claude-sonnet-4-6'),
   EMBEDDING_PROVIDER: z.enum(['openai']).default('openai'),
   EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),

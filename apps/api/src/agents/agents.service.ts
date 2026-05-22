@@ -6,6 +6,7 @@ import { ConversationsService } from '../conversations/conversations.service'
 import { AgentRunner } from './runner/agent-runner'
 import { OpenAIProvider } from './llm/openai.provider'
 import { AnthropicProvider } from './llm/anthropic.provider'
+import { DeepSeekProvider } from './llm/deepseek.provider'
 import { MemoryService } from '../memory/memory.service'
 import type { AssistantToolCall, ChatMessage, ChatProvider } from './llm/llm.interface'
 import { loadEnv } from '../config/env'
@@ -26,11 +27,20 @@ export class AgentsService {
     private readonly runner: AgentRunner,
     private readonly openai: OpenAIProvider,
     private readonly anthropic: AnthropicProvider,
+    private readonly deepseek: DeepSeekProvider,
     private readonly memory: MemoryService,
   ) {}
 
   private pickProvider(): ChatProvider {
-    return this.env.LLM_DEFAULT_PROVIDER === 'openai' ? this.openai : this.anthropic
+    switch (this.env.LLM_DEFAULT_PROVIDER) {
+      case 'openai':
+        return this.openai
+      case 'deepseek':
+        return this.deepseek
+      case 'anthropic':
+      default:
+        return this.anthropic
+    }
   }
 
   async sendMessage(args: {
