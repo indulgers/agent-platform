@@ -1,4 +1,11 @@
+import { config as loadDotenv } from 'dotenv'
+import * as path from 'node:path'
 import { z } from 'zod'
+
+// Load .env from the monorepo root first, then from the api workspace so a local override
+// can shadow root values. Both calls are no-ops if the file is missing.
+loadDotenv({ path: path.resolve(__dirname, '..', '..', '..', '..', '.env') })
+loadDotenv({ path: path.resolve(__dirname, '..', '..', '.env'), override: true })
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
