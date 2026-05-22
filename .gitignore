@@ -7,6 +7,7 @@ build/
 .turbo/
 .cache/
 coverage/
+*.tsbuildinfo
 
 .env
 .env.local
