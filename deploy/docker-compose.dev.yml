@@ -1,29 +1,38 @@
 # Local development infra only — postgres + redis. Run the api and web on the host
 # (pnpm dev) so HMR works.
+#
+# Host ports are deliberately shifted (5433 / 6380) to avoid colliding with other local
+# projects that already bind the default 5432 / 6379 (e.g. flatwhite). Update .env to
+# match if you change them. The production compose file uses the default ports inside
+# the internal docker network and only exposes nginx on :80.
+
+name: agent-platform-dev
 
 services:
   postgres:
     image: pgvector/pgvector:pg16
+    container_name: agent-platform-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: agent_platform
     ports:
-      - '5432:5432'
+      - '5433:5432'
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U postgres']
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d agent_platform']
       interval: 5s
       timeout: 5s
       retries: 10
 
   redis:
     image: redis:7-alpine
+    container_name: agent-platform-redis
     restart: unless-stopped
     ports:
-      - '6379:6379'
+      - '6380:6379'
     volumes:
       - redisdata:/data
     healthcheck:
