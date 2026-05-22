@@ -1,0 +1,71 @@
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [vector]
+}
+
+model User {
+  id            String         @id @default(cuid())
+  email         String         @unique
+  passwordHash  String
+  createdAt     DateTime       @default(now())
+  conversations Conversation[]
+  tasks         Task[]
+}
+
+model Conversation {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String    @default("New chat")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  messages  Message[]
+
+  @@index([userId, updatedAt])
+}
+
+model Message {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  role           String
+  content        String
+  toolCalls      Json?
+  toolCallId     String?
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId, createdAt])
+}
+
+/// Vector-typed via raw SQL migration; Prisma sees it as Unsupported.
+model MemoryChunk {
+  id             String                      @id @default(cuid())
+  userId         String
+  conversationId String?
+  content        String
+  embedding      Unsupported("vector(1536)")
+  createdAt      DateTime                    @default(now())
+
+  @@index([userId])
+}
+
+model Task {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String
+  payload   Json
+  status    String   @default("queued")
+  result    Json?
+  error     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+}

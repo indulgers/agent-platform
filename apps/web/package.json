@@ -1,0 +1,42 @@
+{
+  "name": "@agent-platform/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "agent-platform web — Vite + React",
+  "author": "indulger",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 5173",
+    "lint": "eslint \"src/**/*.{ts,tsx}\" --fix",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-platform/shared": "workspace:*",
+    "@radix-ui/react-slot": "^1.1.1",
+    "@tanstack/react-query": "^5.62.7",
+    "@tanstack/react-router": "^1.95.1",
+    "class-variance-authority": "^0.7.1",
+    "clsx": "^2.1.1",
+    "lucide-react": "^0.469.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tailwind-merge": "^2.5.5",
+    "zod": "^3.23.8",
+    "zustand": "^5.0.2"
+  },
+  "devDependencies": {
+    "@tanstack/router-plugin": "^1.95.1",
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "tailwindcss": "^3.4.16",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.3"
+  }
+}

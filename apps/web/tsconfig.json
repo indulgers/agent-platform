@@ -1,0 +1,21 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "jsx": "react-jsx",
+    "useDefineForClassFields": true,
+    "allowImportingTsExtensions": false,
+    "isolatedModules": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@agent-platform/shared": ["../../packages/shared/src"]
+    }
+  },
+  "include": ["src", "vite.config.ts"]
+}

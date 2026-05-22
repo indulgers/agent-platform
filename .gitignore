@@ -1,0 +1,26 @@
+node_modules/
+.pnpm-store/
+.pnpm-debug.log*
+
+dist/
+build/
+.turbo/
+.cache/
+coverage/
+
+.env
+.env.local
+.env.*.local
+
+.DS_Store
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+
+# Prisma generated client
+apps/api/prisma/generated/
+
+# Vite
+apps/web/.vite/
