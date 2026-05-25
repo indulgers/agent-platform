@@ -74,12 +74,23 @@ services:
         limits:
           memory: 128M
 
+  landing:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.landing
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+
   nginx:
     image: nginx:1.27-alpine
     restart: unless-stopped
     depends_on:
       - api
       - web
+      - landing
     ports:
       - '80:80'
     volumes:
