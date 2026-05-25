@@ -1,0 +1,532 @@
+<!doctype html>
+<html lang="en" data-theme="dark" data-lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <title>agent-platform — Multi-tool task agent · open infrastructure for AI workflows</title>
+    <meta
+      name="description"
+      content="Self-hosted, OpenAI/Anthropic/DeepSeek-compatible task agent. Plug in your data and tools, stream answers, ship in an afternoon."
+    />
+    <meta name="author" content="indulger" />
+
+    <!-- Open Graph -->
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="agent-platform — Multi-tool task agent" />
+    <meta
+      property="og:description"
+      content="Self-hosted, OpenAI/Anthropic/DeepSeek-compatible task agent. Plug in your data and tools."
+    />
+    <meta property="og:locale" content="en_US" />
+    <meta property="og:locale:alternate" content="zh_CN" />
+
+    <meta name="twitter:card" content="summary_large_image" />
+
+    <!-- fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+    />
+
+    <style>
+      /* anti-FOUC: hide opposite-language blocks before stylesheets load */
+      [data-lang='en'] [lang='zh'],
+      [data-lang='zh'] [lang='en'] { display: none; }
+    </style>
+
+    <script type="module" src="/src/main.ts"></script>
+  </head>
+  <body>
+    <!-- ===== NAV ============================================================ -->
+    <nav class="nav">
+      <div class="container nav__inner">
+        <a href="/" class="nav__brand" aria-label="agent-platform home">
+          <span class="nav__brand-mark" aria-hidden="true"></span>
+          <span>agent-platform</span>
+        </a>
+
+        <div class="nav__links" aria-label="Primary">
+          <a class="nav__link" href="#features"><span lang="en">Features</span><span lang="zh">功能</span></a>
+          <a class="nav__link" href="#how"><span lang="en">How it works</span><span lang="zh">怎么运作</span></a>
+          <a class="nav__link" href="#use-cases"><span lang="en">Use cases</span><span lang="zh">使用场景</span></a>
+          <a class="nav__link" href="https://github.com/indulgers/agent-platform" target="_blank" rel="noopener">GitHub</a>
+        </div>
+
+        <div class="nav__right">
+          <div class="lang-toggle" role="group" aria-label="Language">
+            <button class="btn btn--ghost btn--sm" data-set-lang="en" aria-pressed="true">EN</button>
+            <button class="btn btn--ghost btn--sm" data-set-lang="zh" aria-pressed="false">中</button>
+          </div>
+          <button class="btn btn--ghost btn--sm" data-toggle-theme aria-label="Toggle theme">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+            </svg>
+          </button>
+          <a class="btn btn--secondary btn--sm" href="/app">
+            <span lang="en">Sign in</span><span lang="zh">登录</span>
+          </a>
+        </div>
+      </div>
+    </nav>
+
+    <!-- ===== HERO =========================================================== -->
+    <header class="hero">
+      <div class="hero__mesh" aria-hidden="true"></div>
+      <div class="container hero__inner">
+        <span class="badge hero__eyebrow">
+          <span class="badge__dot" aria-hidden="true"></span>
+          <span lang="en">v0.1 · self-hosted, MIT-style</span>
+          <span lang="zh">v0.1 · 可自部署、可二改</span>
+        </span>
+
+        <h1 class="hero__title">
+          <span lang="en">
+            Multi-tool agents,<br />
+            <span class="hero__title-accent">built for shipping.</span>
+          </span>
+          <span lang="zh">
+            多工具 agent，<br />
+            <span class="hero__title-accent">为「真做出来」而生。</span>
+          </span>
+        </h1>
+
+        <p class="hero__sub">
+          <span lang="en">
+            Plug in your data, your tools, your favourite LLM (OpenAI · Anthropic · DeepSeek out of the box). Stream
+            token-level output and tool calls over SSE. Deploy the whole stack to a single VPS with one
+            <code>docker compose up</code>.
+          </span>
+          <span lang="zh">
+            插上你的数据、你的工具、你喜欢的模型（OpenAI / Anthropic / DeepSeek 开箱即用）。SSE
+            流式回传 token 与工具调用。整套栈一句 <code>docker compose up</code> 跑在一台
+            VPS。
+          </span>
+        </p>
+
+        <div class="hero__cta">
+          <a class="btn btn--primary btn--lg" href="/app">
+            <span lang="en">Try the live app</span><span lang="zh">立即试用</span>
+            <span class="kbd" style="background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.25); color: #fff;">→</span>
+          </a>
+          <a class="btn btn--secondary btn--lg" href="https://github.com/indulgers/agent-platform" target="_blank" rel="noopener">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 .5C5.65.5.5 5.65.5 12.02c0 5.08 3.29 9.4 7.86 10.93.58.1.79-.25.79-.56v-2.16c-3.2.7-3.87-1.37-3.87-1.37-.52-1.34-1.28-1.7-1.28-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.2 1.77 1.2 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.28 1.18-3.08-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.15 1.18a10.92 10.92 0 0 1 5.74 0c2.19-1.49 3.15-1.18 3.15-1.18.62 1.58.23 2.75.11 3.04.74.8 1.18 1.82 1.18 3.08 0 4.42-2.69 5.39-5.26 5.68.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 23.5 12.02C23.5 5.65 18.35.5 12 .5z"/>
+            </svg>
+            <span lang="en">GitHub</span><span lang="zh">GitHub</span>
+          </a>
+        </div>
+
+        <div class="hero__meta">
+          <span class="hero__meta-item">TypeScript · NestJS · React</span>
+          <span class="hero__meta-item">Postgres + pgvector</span>
+          <span class="hero__meta-item">Redis · BullMQ</span>
+          <span class="hero__meta-item">SSE streaming</span>
+        </div>
+
+        <!-- mockup: replaces a real product screenshot until we have one -->
+        <div class="hero__mockup-wrap" aria-hidden="true">
+          <div class="mockup">
+            <div class="mockup__chrome">
+              <div class="mockup__dots">
+                <span class="mockup__dot"></span>
+                <span class="mockup__dot"></span>
+                <span class="mockup__dot"></span>
+              </div>
+              <span class="mockup__crumb">app.agent-platform.dev / chat / cmpho4dq6q9zo2</span>
+            </div>
+            <div class="mockup__body">
+              <aside class="mockup__sidebar">
+                <div style="display:flex;align-items:center;justify-content:space-between;padding:0 4px 10px;">
+                  <span class="text-mono text-muted" style="font-size:11.5px;letter-spacing:.02em;">CONVERSATIONS</span>
+                  <span class="kbd">⌘N</span>
+                </div>
+                <div class="mockup__convo mockup__convo--active">
+                  <span class="mockup__convo-dot" aria-hidden="true"></span>
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Summarise weekly metrics…</span>
+                </div>
+                <div class="mockup__convo">
+                  <span class="mockup__convo-dot" aria-hidden="true"></span>
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Diff latest release notes</span>
+                </div>
+                <div class="mockup__convo">
+                  <span class="mockup__convo-dot" aria-hidden="true"></span>
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Crawl pricing competitors</span>
+                </div>
+                <div class="mockup__convo">
+                  <span class="mockup__convo-dot" aria-hidden="true"></span>
+                  <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">RAG over team wiki</span>
+                </div>
+              </aside>
+              <section class="mockup__chat">
+                <div class="mockup__msg mockup__msg--user">Summarise this week's metrics from the dashboard.</div>
+                <div class="mockup__tool">
+                  <span class="mockup__tool-name">▶ http_fetch</span> · grafana.internal/d/weekly-metrics →
+                  <span style="color:var(--color-success)">200 OK · 18.4 KB</span>
+                </div>
+                <div class="mockup__msg mockup__msg--assistant">
+                  Active users grew <strong style="color:var(--color-success)">+12.4%</strong> WoW.
+                  Median latency held at <code style="background:var(--color-surface-3);padding:0 5px;border-radius:4px;color:var(--color-accent-soft);font-family:var(--font-mono);font-size:11.5px;">187ms</code>.
+                  Conversion dipped on Wed only<span class="mockup__caret"></span>
+                </div>
+              </section>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- ===== FEATURES ======================================================= -->
+    <section class="section" id="features">
+      <div class="container">
+        <div class="section__eyebrow" lang="en">FEATURES</div>
+        <div class="section__eyebrow" lang="zh">功能</div>
+        <h2 class="section__title">
+          <span lang="en">The agent runtime, minus the lock-in.</span>
+          <span lang="zh">一套 agent 运行时，没有任何 lock-in。</span>
+        </h2>
+        <p class="section__intro">
+          <span lang="en">
+            Three pieces do the heavy lifting: a provider layer that talks to any major LLM, a tool registry
+            that runs your code, and an SSE pipeline that streams everything back. Replace any piece without
+            rewriting the rest.
+          </span>
+          <span lang="zh">
+            三件事撑起整个系统：能对接任意主流 LLM 的 provider 层、跑你自己代码的工具注册表、把整个流程实时回传的 SSE 通道。任何一块都可以替换，不会牵动其它部分。
+          </span>
+        </p>
+
+        <div class="features">
+          <article class="feature">
+            <div class="feature__icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>
+              </svg>
+            </div>
+            <h3 class="feature__title">
+              <span lang="en">Multi-tool plan / act loop</span>
+              <span lang="zh">多工具 plan / act 循环</span>
+            </h3>
+            <p class="feature__body">
+              <span lang="en">
+                The runner streams tokens until the model emits a tool call, runs the tool, feeds the result
+                back, repeats. Max-iterations guard. Tools are zod-typed, validated at the boundary.
+              </span>
+              <span lang="zh">
+                runner 边流式回吐 token 边监听 tool call，调用、回填、继续。带最大迭代次数兜底。工具用 zod 定义，边界处自动校验。
+              </span>
+            </p>
+            <div class="feature__chip-row">
+              <span class="chip">http_fetch</span>
+              <span class="chip">vector_search</span>
+              <span class="chip">+ your own</span>
+            </div>
+          </article>
+
+          <article class="feature">
+            <div class="feature__icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 6h16M4 12h10M4 18h16"/><path d="M18 9l3 3-3 3"/>
+              </svg>
+            </div>
+            <h3 class="feature__title">
+              <span lang="en">SSE streaming, end to end</span>
+              <span lang="zh">端到端 SSE 流</span>
+            </h3>
+            <p class="feature__body">
+              <span lang="en">
+                One typed event union — <code>token · tool_call · tool_result · done</code> — used by both
+                server and client. No invented adapters, no buffered chunks.
+              </span>
+              <span lang="zh">
+                一套带类型的事件 union — <code>token · tool_call · tool_result · done</code> — 前后端共用。不发明 adapter，不缓冲整段。
+              </span>
+            </p>
+            <div class="feature__chip-row">
+              <span class="chip">SseEvent</span>
+              <span class="chip">@agent-platform/shared</span>
+            </div>
+          </article>
+
+          <article class="feature">
+            <div class="feature__icon" aria-hidden="true">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>
+              </svg>
+            </div>
+            <h3 class="feature__title">
+              <span lang="en">Plug any LLM provider</span>
+              <span lang="zh">任意 LLM provider 一键接入</span>
+            </h3>
+            <p class="feature__body">
+              <span lang="en">
+                OpenAI, Anthropic, and DeepSeek ship in the box. Anything OpenAI-protocol-compatible
+                (Together, Groq, vLLM, Ollama) is a 10-line subclass.
+              </span>
+              <span lang="zh">
+                OpenAI、Anthropic、DeepSeek 开箱即用。任何 OpenAI 协议兼容的服务（Together、Groq、vLLM、Ollama）只需要一个 10 行的子类。
+              </span>
+            </p>
+            <div class="feature__chip-row">
+              <span class="chip">openai</span>
+              <span class="chip">anthropic</span>
+              <span class="chip">deepseek</span>
+              <span class="chip">+ compatible</span>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== HOW IT WORKS =================================================== -->
+    <section class="section" id="how">
+      <div class="container">
+        <div class="section__eyebrow" lang="en">HOW IT WORKS</div>
+        <div class="section__eyebrow" lang="zh">怎么运作</div>
+        <h2 class="section__title">
+          <span lang="en">Three moving parts. One typed event stream.</span>
+          <span lang="zh">三件事，一条带类型的事件流。</span>
+        </h2>
+        <p class="section__intro">
+          <span lang="en">
+            Same loop every request: you ask, the runner plans and runs tools, tokens stream back.
+            Everything you see in the UI corresponds to a typed <code>SseEvent</code> the server
+            actually emitted — no synthesised animations.
+          </span>
+          <span lang="zh">
+            每次请求都是同一个循环：你提问、runner 规划并调用工具、token 流式回传。前端看到的每一帧都对应服务器真实发出的 <code>SseEvent</code> —— 没有 fake 动画。
+          </span>
+        </p>
+
+        <div class="steps">
+          <article class="step">
+            <div class="step__num">01 / ASK</div>
+            <h3 class="step__title">
+              <span lang="en">POST a message</span>
+              <span lang="zh">提一个问题</span>
+            </h3>
+            <p class="step__body">
+              <span lang="en">
+                Client POSTs to <code>/api/agents/:id/messages</code> with the user's text and an
+                Authorization header. JWT-guarded.
+              </span>
+              <span lang="zh">
+                客户端 POST 到 <code>/api/agents/:id/messages</code>，带上用户文本和鉴权头。受 JWT 保护。
+              </span>
+            </p>
+            <pre class="step__code"><span class="step__code-key">POST</span> /api/agents/abc/messages
+<span class="step__code-key">{</span>
+  <span class="step__code-str">"content"</span><span class="step__code-key">:</span> <span class="step__code-str">"Summarise weekly metrics"</span>
+<span class="step__code-key">}</span></pre>
+          </article>
+
+          <article class="step">
+            <div class="step__num">02 / PLAN + ACT</div>
+            <h3 class="step__title">
+              <span lang="en">Runner loops until done</span>
+              <span lang="zh">runner 循环直到收尾</span>
+            </h3>
+            <p class="step__body">
+              <span lang="en">
+                The runner streams tokens. On a <code>tool_call</code> it pauses, validates the
+                args with zod, runs the tool, feeds the result back, continues. Capped at
+                <code>AGENT_MAX_ITERATIONS</code>.
+              </span>
+              <span lang="zh">
+                runner 边流式输出 token，碰到 <code>tool_call</code> 就暂停、用 zod 校验参数、运行工具、把结果填回、继续。最多 <code>AGENT_MAX_ITERATIONS</code> 步兜底。
+              </span>
+            </p>
+            <pre class="step__code"><span class="step__code-key">while</span> (iter++ &lt; MAX) {
+  <span class="step__code-key">const</span> r = <span class="step__code-key">await</span> provider.stream(msgs)
+  <span class="step__code-key">if</span> (!r.toolCalls.length) <span class="step__code-key">break</span>
+  msgs.push(...<span class="step__code-key">await</span> runTools(r))
+}</pre>
+          </article>
+
+          <article class="step">
+            <div class="step__num">03 / STREAM</div>
+            <h3 class="step__title">
+              <span lang="en">SSE all the way down</span>
+              <span lang="zh">SSE 一路打到前端</span>
+            </h3>
+            <p class="step__body">
+              <span lang="en">
+                Every step emits a typed event on the SSE channel. The browser parses
+                <code>token</code> / <code>tool_call</code> / <code>tool_result</code> /
+                <code>done</code> and updates the UI as they arrive.
+              </span>
+              <span lang="zh">
+                每一步在 SSE 通道上发出一条带类型的事件。浏览器解析 <code>token</code> / <code>tool_call</code> / <code>tool_result</code> / <code>done</code> 并实时更新 UI。
+              </span>
+            </p>
+            <pre class="step__code">data: <span class="step__code-key">{</span><span class="step__code-str">"type"</span>:<span class="step__code-str">"token"</span>,<span class="step__code-str">"delta"</span>:<span class="step__code-str">"Active"</span><span class="step__code-key">}</span>
+data: <span class="step__code-key">{</span><span class="step__code-str">"type"</span>:<span class="step__code-str">"tool_call"</span>,<span class="step__code-str">"name"</span>:<span class="step__code-str">"http_fetch"</span><span class="step__code-key">}</span>
+data: <span class="step__code-key">{</span><span class="step__code-str">"type"</span>:<span class="step__code-str">"done"</span><span class="step__code-key">}</span></pre>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== USE CASES ====================================================== -->
+    <section class="section" id="use-cases" style="padding-top: 0;">
+      <div class="container">
+        <div class="section__eyebrow" lang="en">USE CASES</div>
+        <div class="section__eyebrow" lang="zh">使用场景</div>
+        <h2 class="section__title">
+          <span lang="en">Built for the chores you don't enjoy.</span>
+          <span lang="zh">替你跑那些不想干的活。</span>
+        </h2>
+
+        <div class="use-cases">
+          <article class="use-case">
+            <div class="use-case__tag">01 · Research assistant</div>
+            <h3 class="use-case__title">
+              <span lang="en">Pull, read, summarise.</span>
+              <span lang="zh">拉网页、读完、总结好。</span>
+            </h3>
+            <p class="use-case__body">
+              <span lang="en">
+                Ask for a competitor's pricing or a paper's findings. The agent fetches, parses, and
+                writes you a 3-bullet summary with citations.
+              </span>
+              <span lang="zh">
+                问竞品定价、问一篇论文的结论。agent 自己抓取、解析、写出带引用的 3 条要点。
+              </span>
+            </p>
+            <div class="use-case__chips">
+              <span class="chip">http_fetch</span>
+              <span class="chip">vector_search</span>
+            </div>
+          </article>
+
+          <article class="use-case">
+            <div class="use-case__tag">02 · Data ops</div>
+            <h3 class="use-case__title">
+              <span lang="en">Slice your metrics in a sentence.</span>
+              <span lang="zh">一句话切你的数据。</span>
+            </h3>
+            <p class="use-case__body">
+              <span lang="en">
+                Point it at your dashboard, your warehouse, or a CSV. Ask
+                <em>"WoW change in p90 latency by endpoint"</em>. Get the answer, the SQL it ran,
+                and a chart-ready table.
+              </span>
+              <span lang="zh">
+                让它对着你的看板 / 数据仓库 / CSV。问 <em>"按 endpoint 看 p90 延迟周环比"</em>。回你答案、它跑过的 SQL、以及可以直接画图的表。
+              </span>
+            </p>
+            <div class="use-case__chips">
+              <span class="chip">sql_query</span>
+              <span class="chip">http_fetch</span>
+            </div>
+          </article>
+
+          <article class="use-case">
+            <div class="use-case__tag">03 · Workflow automation</div>
+            <h3 class="use-case__title">
+              <span lang="en">Long jobs without the babysitting.</span>
+              <span lang="zh">长任务，不用守着。</span>
+            </h3>
+            <p class="use-case__body">
+              <span lang="en">
+                Heavy work (crawls, embedding batches, exports) hands off to BullMQ. You get a
+                <code>taskId</code>, you watch it, you come back to results.
+              </span>
+              <span lang="zh">
+                重活（爬虫、批量 embedding、导出）下发给 BullMQ。你拿到 <code>taskId</code>，去看进度，结果好了回来取。
+              </span>
+            </p>
+            <div class="use-case__chips">
+              <span class="chip">BullMQ</span>
+              <span class="chip">+ your tool</span>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== CTA ============================================================ -->
+    <section class="cta">
+      <div class="container">
+        <div class="cta-panel">
+          <div class="cta-panel__eyebrow">READY?</div>
+          <h2 class="cta-panel__title">
+            <span lang="en">Self-host the whole stack on a single VPS.</span>
+            <span lang="zh">一台 VPS 跑完整套栈。</span>
+          </h2>
+          <p class="cta-panel__sub">
+            <span lang="en">
+              No SaaS lock-in, no per-seat pricing, no usage caps you can't see. Bring your own
+              keys, your own data, and ship.
+            </span>
+            <span lang="zh">
+              不锁 SaaS、不按座位收费、没有看不见的额度。带上你自己的 key 和数据，开干。
+            </span>
+          </p>
+          <div class="cta-panel__cta-row">
+            <a class="btn btn--primary btn--lg" href="/app">
+              <span lang="en">Open the app</span><span lang="zh">打开应用</span>
+              <span class="kbd" style="background: rgba(255,255,255,0.18); border-color: rgba(255,255,255,0.25); color: #fff;">→</span>
+            </a>
+            <a class="btn btn--secondary btn--lg" href="https://github.com/indulgers/agent-platform" target="_blank" rel="noopener">
+              <span lang="en">Read the source</span><span lang="zh">读源码</span>
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== FOOTER ========================================================= -->
+    <footer class="footer">
+      <div class="container footer__inner">
+        <div class="footer__about">
+          <div class="footer__brand-row">
+            <span class="nav__brand-mark" aria-hidden="true"></span>
+            <span style="font-family: var(--font-display); font-weight: 600; font-size: 14px; letter-spacing: var(--tracking-snug);">agent-platform</span>
+          </div>
+          <p class="footer__tagline">
+            <span lang="en">A small, opinionated agent runtime. Built by one person, in the open.</span>
+            <span lang="zh">一套精简、有立场的 agent 运行时。一个人写的，开源。</span>
+          </p>
+        </div>
+
+        <div>
+          <div class="footer__col-title" lang="en">PRODUCT</div>
+          <div class="footer__col-title" lang="zh">产品</div>
+          <ul class="footer__list">
+            <li><a class="footer__link" href="#features"><span lang="en">Features</span><span lang="zh">功能</span></a></li>
+            <li><a class="footer__link" href="#how"><span lang="en">How it works</span><span lang="zh">怎么运作</span></a></li>
+            <li><a class="footer__link" href="#use-cases"><span lang="en">Use cases</span><span lang="zh">使用场景</span></a></li>
+            <li><a class="footer__link" href="/app"><span lang="en">Open app</span><span lang="zh">打开应用</span></a></li>
+          </ul>
+        </div>
+
+        <div>
+          <div class="footer__col-title" lang="en">OPEN SOURCE</div>
+          <div class="footer__col-title" lang="zh">开源</div>
+          <ul class="footer__list">
+            <li><a class="footer__link" href="https://github.com/indulgers/agent-platform" target="_blank" rel="noopener">GitHub</a></li>
+            <li><a class="footer__link" href="https://github.com/indulgers/agent-platform/issues" target="_blank" rel="noopener">Issues</a></li>
+            <li><a class="footer__link" href="https://github.com/indulgers/agent-platform/blob/main/README.md" target="_blank" rel="noopener">README</a></li>
+          </ul>
+        </div>
+
+        <div>
+          <div class="footer__col-title" lang="en">AUTHOR</div>
+          <div class="footer__col-title" lang="zh">作者</div>
+          <ul class="footer__list">
+            <li><a class="footer__link" href="https://github.com/indulgers" target="_blank" rel="noopener">@indulgers</a></li>
+            <li><a class="footer__link" href="mailto:1370356809@qq.com">Email</a></li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="container footer__bottom">
+        <span>© 2026 indulger · MIT-style license</span>
+        <span class="text-mono">v0.1 · main</span>
+      </div>
+    </footer>
+  </body>
+</html>

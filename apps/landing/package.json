@@ -1,0 +1,20 @@
+{
+  "name": "@agent-platform/landing",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "agent-platform marketing site — static, SEO-first",
+  "author": "indulger",
+  "license": "UNLICENSED",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.3"
+  }
+}
