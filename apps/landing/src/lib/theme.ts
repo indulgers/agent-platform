@@ -55,9 +55,24 @@ export function applyLang(lang: Lang): void {
     .forEach(b => b.setAttribute('aria-pressed', String(b.dataset.setLang === lang)))
 }
 
+/**
+ * Production: nginx routes /app/* to the SPA container. Dev: there's no /app
+ * route on the landing dev server (vite on :5174), so clicking "Open the app"
+ * would just hit vite's SPA fallback and reload landing itself. Rewrite those
+ * hrefs to the web app's dev URL so dev clicks actually go somewhere.
+ */
+function rewriteAppLinksForDev(): void {
+  if (!import.meta.env.DEV) return
+  const target = (import.meta.env.VITE_WEB_APP_URL as string | undefined) ?? 'http://localhost:5173/'
+  document.querySelectorAll<HTMLAnchorElement>('a[href="/app"], a[href^="/app/"]').forEach(a => {
+    a.href = target
+  })
+}
+
 export function initThemeAndLang(): void {
   applyTheme(detectTheme())
   applyLang(detectLang())
+  rewriteAppLinksForDev()
 
   document.querySelector('[data-toggle-theme]')?.addEventListener('click', () => {
     const next: Theme = document.documentElement.getAttribute('data-theme') === 'light' ? 'dark' : 'light'
