@@ -4,6 +4,9 @@ import { TanStackRouterVite } from '@tanstack/router-plugin/vite'
 import path from 'node:path'
 
 export default defineConfig({
+  // In production the SPA is served behind nginx at /app/ — set base so asset URLs
+  // resolve to /app/assets/... not /assets/...
+  base: '/app/',
   plugins: [TanStackRouterVite({ routesDirectory: './src/routes', generatedRouteTree: './src/routeTree.gen.ts' }), react()],
   resolve: {
     alias: {

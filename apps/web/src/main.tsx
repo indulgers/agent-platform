@@ -6,7 +6,12 @@ import { queryClient } from '@/lib/query-client'
 import { routeTree } from '@/routeTree.gen'
 import './styles.css'
 
-const router = createRouter({ routeTree })
+// In production the SPA lives under /app/. In dev it sits at /. Vite's base config
+// resolves assets; this aligns router URLs with the same prefix.
+const router = createRouter({
+  routeTree,
+  basepath: import.meta.env.BASE_URL.replace(/\/$/, '') || '/',
+})
 
 declare module '@tanstack/react-router' {
   interface Register {
