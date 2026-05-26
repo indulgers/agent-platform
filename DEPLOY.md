@@ -1,12 +1,14 @@
 # Deploy guide
 
-Production target: a single 腾讯云 4C8G VPS (Ubuntu 22.04 or similar). Everything
-lives in Docker Compose. CI builds and pushes images to GHCR; GitHub Actions
-SSH's into the VPS to pull + restart on every `main` push.
+Production target: a single 腾讯云 4C8G VPS (Ubuntu 22.04 or similar).
+Everything lives in Docker Compose. CI is a thin shim: it SSH's into the VPS
+and runs `git pull && docker compose build && up -d`. Building on the server
+side-steps the cross-pacific image-transfer bottleneck (GHCR is fronted by
+GitHub's CDN in US/EU — slow from CN).
 
 ## One-time VPS bootstrap
 
-Do this once per VPS, as `root` or via `sudo`.
+Do this once per VPS.
 
 ### 1. Install docker + compose
 
@@ -28,7 +30,6 @@ docker compose version
 ```bash
 sudo adduser --disabled-password --gecos '' deploy
 sudo usermod -aG docker deploy
-sudo -iu deploy
 ```
 
 ### 3. SSH key for GitHub Actions
@@ -39,53 +40,38 @@ On your laptop:
 ssh-keygen -t ed25519 -f ~/.ssh/agent-platform-deploy -C 'gha-deploy@agent-platform'
 ```
 
-Copy the public key onto the VPS:
+Copy the public key into the deploy user's `authorized_keys` on the VPS:
 
 ```bash
-# on the VPS as the deploy user
+# on the VPS as the deploy user (sudo -iu deploy if you're root)
 mkdir -p ~/.ssh && chmod 700 ~/.ssh
 echo 'ssh-ed25519 AAAA... gha-deploy@agent-platform' >> ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 ```
 
-### 4. Authorise the VPS to pull from GHCR
+### 4. Clone the repo into the deploy directory
 
-GHCR private images need a PAT. Create one with `read:packages` only:
-
-> github.com → Settings → Developer settings → PAT (classic) → `read:packages`
-
-On the VPS as `deploy`:
-
-```bash
-echo '<your-PAT>' | docker login ghcr.io -u indulgers --password-stdin
-```
-
-This writes `~/.docker/config.json` so future `docker compose pull` works
-without prompting.
-
-### 5. Lay out the deploy directory
+The deploy workflow will `git init + git fetch` on first run if it doesn't
+find a `.git/` here, but cloning yourself is faster + lets you set up `.env`
+before the first build.
 
 ```bash
 sudo -iu deploy
-mkdir -p ~/agent-platform/deploy/nginx
-cd ~/agent-platform
-# These two files come from the repo. The deploy workflow scp's the latest
-# versions on every run, so first-time you can clone the repo OR just copy
-# the two files manually:
-#   ~/agent-platform/deploy/docker-compose.yml
-#   ~/agent-platform/deploy/nginx/default.conf
+cd ~
+git clone https://github.com/indulgers/agent-platform.git
+cd agent-platform
 ```
 
-### 6. Create the production `.env`
+### 5. Create the production `.env`
 
 ```bash
-cd ~/agent-platform
-# Copy the template from the repo (see .env.production.example in repo root)
+cp .env.production.example .env
 nano .env
+chmod 600 .env
 ```
 
-Fill in **every** value marked `CHANGEME`. Critical ones the compose will
-refuse to start without:
+Fill in every `CHANGEME`. Critical values the compose refuses to start
+without:
 
 | var | what it is |
 |---|---|
@@ -97,19 +83,21 @@ refuse to start without:
 
 At least one of `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY`.
 
-### 7. First-time pull + boot (manual)
+### 6. First-time build + boot (manual)
 
 ```bash
 cd ~/agent-platform
-docker compose --env-file .env -f deploy/docker-compose.yml pull
+docker compose --env-file .env -f deploy/docker-compose.yml build
 docker compose --env-file .env -f deploy/docker-compose.yml up -d
-docker compose --env-file .env -f deploy/docker-compose.yml ps   # all services 'healthy' / 'running'
+docker compose --env-file .env -f deploy/docker-compose.yml ps
+# all services should be 'healthy' / 'running'
 ```
 
-Apply the Prisma schema once:
+Apply the Prisma schema once (and every time the schema changes):
 
 ```bash
-docker compose --env-file .env -f deploy/docker-compose.yml exec api pnpm exec prisma db push
+docker compose --env-file .env -f deploy/docker-compose.yml exec api \
+  node node_modules/.bin/prisma db push --schema=prisma/schema.prisma
 ```
 
 Hit it:
@@ -127,8 +115,9 @@ open http://<vps-ip>/
 
 ## GitHub Actions secrets
 
-In the repo on github.com → Settings → Secrets and variables → Actions →
-**New repository secret**. Add:
+In the GitHub UI under your repo → Settings → Secrets and variables → Actions
+→ **New repository secret** (or **Environment "prod"** if you want the deploy
+job to ask for approval before running). Add:
 
 | name | value |
 |---|---|
@@ -138,75 +127,56 @@ In the repo on github.com → Settings → Secrets and variables → Actions →
 | `SSH_PORT` | optional, defaults to 22 |
 | `DEPLOY_DIR` | `/home/deploy/agent-platform` |
 
-`GITHUB_TOKEN` is automatic — it's used to push images to GHCR under the
-repo's own namespace.
+The deploy workflow expects these to live in the `prod` Environment — bind
+it via `environment: prod` (already set in `.github/workflows/deploy.yml`).
 
 ## How deploys flow
 
 1. You merge a PR to `main`.
-2. `.github/workflows/deploy.yml` triggers:
-   - matrix-builds 3 images in parallel: `agent-platform-api`, `-web`, `-landing`
-   - pushes them to `ghcr.io/indulgers/agent-platform-<target>:sha-<commit>` and `:latest`
-3. The `deploy` job:
-   - `scp`s the latest `deploy/docker-compose.yml` + `deploy/nginx/default.conf` onto the VPS
-   - `ssh`'s in, runs `docker compose pull && up -d --remove-orphans`
-   - prunes dangling images
-4. New containers run on `:latest` (which now points at the freshly-pushed images).
+2. `.github/workflows/deploy.yml` triggers and SSH's into the VPS.
+3. On the VPS:
+   - `git fetch && git reset --hard origin/main`
+   - `docker compose build` — only services whose context changed actually
+     rebuild; layer cache makes unchanged services near-instant.
+   - `docker compose up -d --remove-orphans`
+   - `docker image prune -f`
+4. New containers are running on the freshly built images.
 
-Total wall time: ~3 minutes including image push.
+Total wall time after first build: ~1-3 min (layer cache hits everything).
+First cold build: ~5-10 min on a 4C8G host.
 
 ## Manual deploy / rollback
 
-**Re-deploy the same code** (e.g. after editing an env value):
+**Force a redeploy** (after editing `.env`, or to retry a failed run):
 
 GitHub UI → Actions → **deploy** → Run workflow → leave inputs blank.
 
-**Deploy a specific image** (rollback):
+**Deploy a different ref** (rollback to a previous commit, or a feature
+branch for staging on the same host):
 
-GitHub UI → Actions → **deploy** → Run workflow → set `image_tag` to a
-previous `sha-xxxxxxx` (find them under Packages on the repo).
+GitHub UI → Actions → **deploy** → Run workflow → set `ref` to a branch
+name or a commit SHA.
 
-You can also do it directly on the VPS:
+Directly on the VPS:
 
 ```bash
 cd ~/agent-platform
-export IMAGE_TAG=sha-abc1234
-docker compose --env-file .env -f deploy/docker-compose.yml pull
-docker compose --env-file .env -f deploy/docker-compose.yml up -d
+git fetch origin
+git reset --hard origin/main   # or any other ref
+docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
 ```
 
-## Speed up `docker pull` from CN (one-time per VPS)
+## Speed up `pnpm install` from CN (one-time per VPS)
 
-GHCR is fronted by GitHub's CDN (US/EU). Pulling images from a 腾讯云
-VPS often gets 100KB–1MB/s — slow enough that the first deploy can
-time the SSH step out.
+Dockerfiles default `NPM_REGISTRY=https://registry.npmmirror.com` so the
+`pnpm install` step in each image runs against a CN-side mirror — cuts
+`pnpm install` from ~5min to ~30s on a fresh build.
 
-Configure a public ghcr.io mirror in the docker daemon so subsequent
-pulls hit a CN-side cache:
+Override at build time if you're building elsewhere:
 
 ```bash
-# As root on the VPS
-sudo tee /etc/docker/daemon.json > /dev/null <<'EOF'
-{
-  "registry-mirrors": [
-    "https://docker.cnb.cool",
-    "https://docker.m.daocloud.io"
-  ]
-}
-EOF
-sudo systemctl restart docker
-
-# Confirm
-docker info | grep -A2 'Registry Mirrors'
+docker compose build --build-arg NPM_REGISTRY=https://registry.npmjs.org api
 ```
-
-After the restart, every `docker pull <any-image>` first checks the
-mirror; cache hits return in seconds. Make GHCR images public (Settings →
-Package → Change visibility) for mirrors to be able to cache them.
-
-If pulls are still slow after this, fall back to also pushing images to
-腾讯云 TCR (Tencent Container Registry) from CI and pulling from there
-— a larger workflow change we can do as a follow-up.
 
 ## Adding HTTPS (later, once a domain is wired up)
 
@@ -243,9 +213,6 @@ certs and renews them. The drop-in replacement looks like:
 
 ## Troubleshooting
 
-**`docker compose pull` says 'unauthorized'** — the deploy user's GHCR login
-expired. Re-run step 4 with a fresh PAT.
-
 **`POSTGRES_PASSWORD is required`** on `docker compose up` — `.env` is missing
 or unreadable from the deploy dir. `cat .env | head` to confirm.
 
@@ -253,6 +220,13 @@ or unreadable from the deploy dir. `cat .env | head` to confirm.
 `docker compose logs api | tail -50` will say why. Most common: missing
 `JWT_SECRET` or a DB connection issue if postgres took longer than usual to
 become healthy.
+
+**`pnpm install` step is slow during build** — confirm the npmmirror
+build-arg is in effect; check `docker compose build api 2>&1 | grep registry`.
+
+**`git fetch` fails with auth error** — the repo is public so this shouldn't
+happen. If it does, change the remote URL to use a deploy token or switch
+to SSH: `git remote set-url origin git@github.com:indulgers/agent-platform.git`.
 
 **Browser can't reach MinIO at :9100** — firewall. Open the port:
 

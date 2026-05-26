@@ -1,11 +1,10 @@
 # Full-stack production compose for a single 4C8G host (腾讯云).
 #
-# Image-based: every app pulls a tag from GHCR. CI in .github/workflows/deploy.yml
-# builds and pushes the three images on every main commit; the server just runs
-# `docker compose pull && docker compose up -d --remove-orphans` to update.
-#
-# To deploy locally (e.g. for staging on the same host without going through CI),
-# use docker-compose.build.yml which builds the images from source instead.
+# Build-on-server architecture: every app is built locally from source on the
+# VPS. CI in .github/workflows/deploy.yml just SSH-pulls git + runs
+# `docker compose up -d --build`. We tried GHCR + pull but ghcr.io is too slow
+# from CN (>10min timeouts even with a registry mirror); building on the
+# server avoids the cross-pacific image transfer entirely.
 #
 # Public ports:
 #   :80    nginx — landing + /app/ (SPA) + /api/ proxy
@@ -99,7 +98,10 @@ services:
         echo "$$S3_BUCKET bucket ready"
 
   api:
-    image: ${GHCR_NAMESPACE:-ghcr.io/indulgers}/agent-platform-api:${IMAGE_TAG:-latest}
+    image: agent-platform-api:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
     container_name: agent-platform-api
     restart: unless-stopped
     depends_on:
@@ -141,7 +143,10 @@ services:
           memory: 1G
 
   web:
-    image: ${GHCR_NAMESPACE:-ghcr.io/indulgers}/agent-platform-web:${IMAGE_TAG:-latest}
+    image: agent-platform-web:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
     container_name: agent-platform-web
     restart: unless-stopped
     deploy:
@@ -150,7 +155,10 @@ services:
           memory: 128M
 
   landing:
-    image: ${GHCR_NAMESPACE:-ghcr.io/indulgers}/agent-platform-landing:${IMAGE_TAG:-latest}
+    image: agent-platform-landing:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.landing
     container_name: agent-platform-landing
     restart: unless-stopped
     deploy:

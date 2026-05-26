@@ -4,7 +4,12 @@
 # instead of ~700MB+.
 
 FROM node:20-slim AS base
-RUN corepack enable && corepack prepare pnpm@9.11.0 --activate
+# Override at build time with --build-arg NPM_REGISTRY=https://registry.npmjs.org
+# if you're building outside CN. Default points at npmmirror.com to dodge the
+# cross-pacific bottleneck when this Dockerfile runs on the 腾讯云 VPS.
+ARG NPM_REGISTRY=https://registry.npmmirror.com
+RUN corepack enable && corepack prepare pnpm@9.11.0 --activate \
+ && pnpm config set registry "$NPM_REGISTRY"
 WORKDIR /repo
 
 # ---------- deps ----------
