@@ -1,0 +1,52 @@
+# Build context blocklist — everything here is excluded from the tarball
+# Docker streams to buildx. Without this, every build uploads 100s of MB
+# of host garbage (node_modules, dist, .git, vite caches), which both
+# slows the build and risks leaking stale state into image layers.
+
+# Package manager output
+node_modules
+**/node_modules
+.pnpm-store
+
+# Build / typecheck artifacts
+**/dist
+**/build
+**/.turbo
+**/.cache
+**/.vite
+**/.next
+*.tsbuildinfo
+**/*.tsbuildinfo
+
+# Prisma generated client (the build stage runs `prisma generate` fresh)
+apps/api/prisma/generated
+
+# Local env (server has its own .env, never want to leak the dev one)
+.env
+.env.*
+!.env.example
+!.env.production.example
+
+# Tests / coverage
+**/coverage
+**/test-results
+**/playwright-report
+
+# OS / editor / VCS
+.git
+.gitignore
+.gitattributes
+.github
+.vscode
+.idea
+.DS_Store
+**/*.log
+
+# Docs / planning (not needed in image)
+*.md
+!apps/landing/index.html  # not a markdown, just guarding
+
+# Lockfile-adjacent docker helpers
+deploy/docker-compose*.yml
+deploy/Dockerfile*
+deploy/nginx

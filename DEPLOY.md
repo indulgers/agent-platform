@@ -175,6 +175,39 @@ docker compose --env-file .env -f deploy/docker-compose.yml pull
 docker compose --env-file .env -f deploy/docker-compose.yml up -d
 ```
 
+## Speed up `docker pull` from CN (one-time per VPS)
+
+GHCR is fronted by GitHub's CDN (US/EU). Pulling images from a 腾讯云
+VPS often gets 100KB–1MB/s — slow enough that the first deploy can
+time the SSH step out.
+
+Configure a public ghcr.io mirror in the docker daemon so subsequent
+pulls hit a CN-side cache:
+
+```bash
+# As root on the VPS
+sudo tee /etc/docker/daemon.json > /dev/null <<'EOF'
+{
+  "registry-mirrors": [
+    "https://docker.cnb.cool",
+    "https://docker.m.daocloud.io"
+  ]
+}
+EOF
+sudo systemctl restart docker
+
+# Confirm
+docker info | grep -A2 'Registry Mirrors'
+```
+
+After the restart, every `docker pull <any-image>` first checks the
+mirror; cache hits return in seconds. Make GHCR images public (Settings →
+Package → Change visibility) for mirrors to be able to cache them.
+
+If pulls are still slow after this, fall back to also pushing images to
+腾讯云 TCR (Tencent Container Registry) from CI and pulling from there
+— a larger workflow change we can do as a follow-up.
+
 ## Adding HTTPS (later, once a domain is wired up)
 
 Cheapest path is to swap nginx for Caddy — it auto-provisions Let's Encrypt

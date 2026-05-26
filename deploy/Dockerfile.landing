@@ -8,7 +8,7 @@ COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
 COPY apps/landing/package.json ./apps/landing/
 COPY packages/shared/package.json ./packages/shared/
-RUN pnpm install --frozen-lockfile=false
+RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 COPY packages ./packages

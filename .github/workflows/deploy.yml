@@ -125,6 +125,10 @@ jobs:
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
           envs: IMAGE_TAG
+          # Default is 10m. The first cold pull from CN to ghcr.io has bitten
+          # us; even with a mirror configured, a full image refresh of all 5
+          # services can run long on a slow link.
+          command_timeout: 30m
           script: |
             set -euo pipefail
             cd "${{ secrets.DEPLOY_DIR }}"

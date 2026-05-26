@@ -1,45 +1,55 @@
 # Multi-stage build for the NestJS API. Builds the whole monorepo so workspace
-# dependencies (@agent-platform/shared) resolve, then ships only the api app.
+# dependencies (@agent-platform/shared) resolve, then ships ONLY the api's
+# production dependency tree extracted via `pnpm deploy`. End size ~250MB
+# instead of ~700MB+.
 
 FROM node:20-slim AS base
 RUN corepack enable && corepack prepare pnpm@9.11.0 --activate
 WORKDIR /repo
 
 # ---------- deps ----------
+# This stage exists for layer-cache reuse: it changes only when a package.json
+# or the lockfile changes. The build stage rebuilds on every source change.
 FROM base AS deps
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml* turbo.json tsconfig.base.json ./
 COPY apps/api/package.json ./apps/api/
 COPY apps/web/package.json ./apps/web/
+COPY apps/landing/package.json ./apps/landing/
 COPY packages/shared/package.json ./packages/shared/
-RUN pnpm install --frozen-lockfile=false
+RUN pnpm install --frozen-lockfile
 
 # ---------- build ----------
 FROM deps AS build
 COPY packages ./packages
 COPY apps/api ./apps/api
-# Build the shared package FIRST — its package.json `main` points at dist/,
-# so api's tsc can't resolve `@agent-platform/shared` until those files exist.
+# Compile shared first so api's tsc can resolve @agent-platform/shared from dist/.
 RUN pnpm --filter @agent-platform/shared build
 RUN pnpm --filter @agent-platform/api exec prisma generate
 RUN pnpm --filter @agent-platform/api build
 
+# Extract a self-contained tree with ONLY api's production deps (no devDeps,
+# no workspace symlinks). pnpm deploy resolves @agent-platform/shared via the
+# workspace and inlines its built dist into the output's node_modules.
+RUN pnpm --filter @agent-platform/api deploy --prod --legacy /deploy-api
+
 # ---------- runtime ----------
 FROM node:20-slim AS runtime
-RUN corepack enable && corepack prepare pnpm@9.11.0 --activate \
- && apt-get update && apt-get install -y --no-install-recommends openssl ca-certificates \
+# openssl for the prisma engine; ca-certificates for any outbound HTTPS the
+# agent makes from its http_fetch tool. No pnpm in runtime — we run node
+# directly against the deployed tree.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends openssl ca-certificates \
  && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Bring along everything pnpm symlinks — simplest reliable copy for a monorepo runtime.
-COPY --from=build /repo/node_modules ./node_modules
-COPY --from=build /repo/apps/api/node_modules ./apps/api/node_modules
-COPY --from=build /repo/apps/api/dist ./apps/api/dist
-COPY --from=build /repo/apps/api/prisma ./apps/api/prisma
-COPY --from=build /repo/apps/api/package.json ./apps/api/
-COPY --from=build /repo/packages/shared ./packages/shared
-COPY --from=build /repo/package.json /repo/pnpm-workspace.yaml ./
+# pnpm deploy gave us a complete app: package.json + node_modules (prod-only)
+# + the built dist/ + prisma schema. Just copy.
+COPY --from=build /deploy-api ./
 
 EXPOSE 3000
-WORKDIR /app/apps/api
-CMD ["sh", "-c", "pnpm exec prisma migrate deploy && node dist/main.js"]
+# Just boot. Schema sync (`prisma db push`) is done manually outside the
+# container — see DEPLOY.md. We don't bundle the prisma CLI in the runtime
+# image (it's a devDep, ~50MB) so the entrypoint stays small and fast.
+CMD ["node", "dist/main.js"]
