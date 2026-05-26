@@ -1,12 +1,13 @@
-import { useEffect, useMemo, useRef } from 'react'
+import { Fragment, useEffect, useMemo, useRef } from 'react'
 import { marked } from 'marked'
 import hljs from 'highlight.js/lib/core'
 import DOMPurify from 'dompurify'
 import { cn } from '@/lib/utils'
+import { MermaidBlock } from '@/components/mermaid-block'
 
 /**
- * Lazy-register the languages we expect to see in agent output. Keeping the
- * bundle small — hljs's "common" build adds ~30 languages we don't need.
+ * Lazy-register the languages we expect to see in agent output. Keeps the
+ * bundle smaller than hljs's "common" build.
  */
 import bash from 'highlight.js/lib/languages/bash'
 import json from 'highlight.js/lib/languages/json'
@@ -50,10 +51,10 @@ hljs.registerLanguage('rust', rust)
 hljs.registerLanguage('rs', rust)
 hljs.registerLanguage('dockerfile', dockerfile)
 
-// One shared marked instance with a custom code renderer that emits a wrapper
-// with language label + copy button. We bind the copy handlers after injection.
 const renderer = new marked.Renderer()
 renderer.code = ({ text, lang }) => {
+  // mermaid blocks are extracted upstream — if one slips through here it
+  // means we missed it during splitting; render as a plain code block.
   const language = (lang ?? '').trim().toLowerCase()
   let highlighted: string
   if (language && hljs.getLanguage(language)) {
@@ -66,14 +67,11 @@ renderer.code = ({ text, lang }) => {
     highlighted = escapeHtml(text)
   }
   const label = language || 'text'
-  // data-copy-source carries the raw text so the copy button can grab it
-  // without us walking the DOM and re-escaping.
   const encoded = encodeURIComponent(text)
   return `<div class="md-code"><div class="md-code__bar"><span class="md-code__lang">${escapeHtml(label)}</span><button type="button" class="md-code__copy" data-copy-source="${encoded}" aria-label="Copy code">Copy</button></div><pre><code class="hljs language-${escapeHtml(language)}">${highlighted}</code></pre></div>`
 }
 renderer.link = ({ href, title, text }) => {
   const safeHref = (href ?? '').trim()
-  // Block javascript: and data: schemes; DOMPurify also catches these, this is belt+braces.
   if (/^javascript:|^data:/i.test(safeHref)) return escapeHtml(text)
   const titleAttr = title ? ` title="${escapeHtml(title)}"` : ''
   return `<a href="${escapeHtml(safeHref)}"${titleAttr} target="_blank" rel="noopener noreferrer">${text}</a>`
@@ -87,21 +85,66 @@ function escapeHtml(s: string): string {
   )
 }
 
+/**
+ * Split the source content into ordered segments: plain markdown (rendered via
+ * marked) and mermaid blocks (rendered via the lazy MermaidBlock component).
+ *
+ * We need this because mermaid wants to render its own SVG into a DOM node,
+ * not into a string that DOMPurify would sanitize the structure out of.
+ */
+interface Segment {
+  kind: 'md' | 'mermaid'
+  content: string
+}
+
+function splitSegments(source: string): Segment[] {
+  // Match ```mermaid ... ``` with non-greedy body, optionally newline-padded.
+  const fence = /```mermaid[ \t]*\n([\s\S]*?)```/g
+  const out: Segment[] = []
+  let last = 0
+  let m: RegExpExecArray | null
+  while ((m = fence.exec(source)) !== null) {
+    if (m.index > last) {
+      out.push({ kind: 'md', content: source.slice(last, m.index) })
+    }
+    out.push({ kind: 'mermaid', content: m[1] ?? '' })
+    last = m.index + m[0].length
+  }
+  if (last < source.length) out.push({ kind: 'md', content: source.slice(last) })
+  if (out.length === 0) out.push({ kind: 'md', content: source })
+  return out
+}
+
 export interface MarkdownProps {
-  /** Raw markdown text (typically streamed from the agent). */
   content: string
   className?: string
 }
 
 export function Markdown({ content, className }: MarkdownProps) {
+  const segments = useMemo(() => splitSegments(content), [content])
+
+  return (
+    <div className={cn('md', className)}>
+      {segments.map((seg, i) =>
+        seg.kind === 'mermaid' ? (
+          <MermaidBlock key={`m-${i}`} source={seg.content} />
+        ) : (
+          <MarkdownChunk key={`t-${i}`} source={seg.content} />
+        ),
+      )}
+    </div>
+  )
+}
+
+function MarkdownChunk({ source }: { source: string }) {
   const ref = useRef<HTMLDivElement>(null)
 
   const html = useMemo(() => {
-    const raw = marked.parse(content, { async: false }) as string
+    const raw = marked.parse(source, { async: false }) as string
     return DOMPurify.sanitize(raw, {
       ADD_ATTR: ['target', 'rel', 'data-copy-source'],
     })
-  }, [content])
+  }, [source])
 
   useEffect(() => {
     if (!ref.current) return
@@ -123,7 +166,7 @@ export function Markdown({ content, className }: MarkdownProps) {
             btn.classList.remove('md-code__copy--ok')
           }, 1200)
         } catch {
-          /* clipboard denied — fail quietly */
+          /* clipboard denied */
         }
       }
       handlers.set(btn, handler)
@@ -136,11 +179,13 @@ export function Markdown({ content, className }: MarkdownProps) {
   }, [html])
 
   return (
-    <div
-      ref={ref}
-      className={cn('md', className)}
-      // eslint-disable-next-line react/no-danger
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <Fragment>
+      <div
+        ref={ref}
+        className="md-chunk"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+    </Fragment>
   )
 }
