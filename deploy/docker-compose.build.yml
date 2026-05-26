@@ -1,0 +1,27 @@
+# Build-from-source overlay for the production compose. Use when you want to
+# test the prod stack locally without pulling from GHCR — typically during
+# Dockerfile changes or before pushing a release.
+#
+#   docker compose -f deploy/docker-compose.yml -f deploy/docker-compose.build.yml up --build -d
+#
+# Compose will merge: the base file's `image:` is overridden by `build:` here,
+# so it builds locally instead of pulling.
+
+services:
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    image: agent-platform-api:local
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    image: agent-platform-web:local
+
+  landing:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.landing
+    image: agent-platform-landing:local

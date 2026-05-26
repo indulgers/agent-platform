@@ -1,0 +1,62 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Stop in-flight runs on the same ref when a new commit lands — saves Action minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typecheck-build:
+    name: typecheck + build (${{ matrix.workspace }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Run the four workspaces in parallel — each is self-contained at
+        # typecheck/build time once shared has been built.
+        workspace:
+          - '@agent-platform/shared'
+          - '@agent-platform/api'
+          - '@agent-platform/web'
+          - '@agent-platform/landing'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.11.0
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'pnpm'
+
+      - name: Install
+        run: pnpm install --frozen-lockfile=false
+
+      # Shared has to build first so its compiled .d.ts and .js are on disk for
+      # the api / web typecheck to resolve workspace imports.
+      - name: Build shared
+        run: pnpm --filter @agent-platform/shared build
+
+      # Prisma client is generated, not committed — without this the api
+      # typecheck fails because @prisma/client's types depend on schema.
+      - name: Generate Prisma client
+        if: matrix.workspace == '@agent-platform/api'
+        run: pnpm --filter @agent-platform/api exec prisma generate
+
+      - name: Typecheck
+        run: pnpm --filter ${{ matrix.workspace }} typecheck
+
+      - name: Build
+        run: pnpm --filter ${{ matrix.workspace }} build
