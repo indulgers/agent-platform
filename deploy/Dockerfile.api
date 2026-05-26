@@ -30,7 +30,7 @@ RUN pnpm --filter @agent-platform/api build
 # Extract a self-contained tree with ONLY api's production deps (no devDeps,
 # no workspace symlinks). pnpm deploy resolves @agent-platform/shared via the
 # workspace and inlines its built dist into the output's node_modules.
-RUN pnpm --filter @agent-platform/api deploy --prod --legacy /deploy-api
+RUN pnpm --filter @agent-platform/api deploy --prod /deploy-api
 
 # ---------- runtime ----------
 FROM node:20-slim AS runtime
