@@ -9,7 +9,14 @@ import { ConversationSidebar } from '@/components/conversation-sidebar'
 interface ConversationWithMessages {
   id: string
   title: string
-  messages: Array<{ id: string; role: string; content: string; toolCalls?: unknown }>
+  model: string | null
+  messages: Array<{
+    id: string
+    role: string
+    content: string
+    toolCalls?: unknown
+    usage?: { model: string; promptTokens: number; completionTokens: number; costUsd: number } | null
+  }>
 }
 
 export const Route = createFileRoute('/chat/$id')({
@@ -32,7 +39,14 @@ function ChatPage() {
       const ui: UiMessage[] = []
       for (const m of convo.messages) {
         if (m.role === 'user') ui.push({ id: m.id, role: 'user', content: m.content, tools: [] })
-        else if (m.role === 'assistant') ui.push({ id: m.id, role: 'assistant', content: m.content, tools: [] })
+        else if (m.role === 'assistant')
+          ui.push({
+            id: m.id,
+            role: 'assistant',
+            content: m.content,
+            tools: [],
+            usage: m.usage ?? undefined,
+          })
         else if (m.role === 'tool') {
           const last = ui[ui.length - 1]
           if (last && last.role === 'assistant') {

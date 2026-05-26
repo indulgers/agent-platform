@@ -22,6 +22,8 @@ export interface RunnerResult {
   finalAssistantText: string
   /** All assistant + tool messages produced during the run, in order. */
   newMessages: ChatMessage[]
+  /** Sum of input + output tokens across every LLM call this run made. */
+  usage: { promptTokens: number; completionTokens: number }
 }
 
 @Injectable()
@@ -44,9 +46,10 @@ export class AgentRunner {
     ]
     const newMessages: ChatMessage[] = [{ role: 'user', content: opts.userMessage }]
     let finalAssistantText = ''
+    const usage = { promptTokens: 0, completionTokens: 0 }
 
     for (let iter = 0; iter < opts.maxIterations; iter++) {
-      if (opts.signal?.aborted) return { finalAssistantText, newMessages }
+      if (opts.signal?.aborted) return { finalAssistantText, newMessages, usage }
 
       const { events, done } = opts.provider.stream({
         model: opts.model,
@@ -57,7 +60,7 @@ export class AgentRunner {
       })
 
       for await (const evt of events) {
-        if (opts.signal?.aborted) return { finalAssistantText, newMessages }
+        if (opts.signal?.aborted) return { finalAssistantText, newMessages, usage }
         if (evt.kind === 'text_delta') {
           opts.emit({ type: 'token', delta: evt.delta })
         }
@@ -65,6 +68,10 @@ export class AgentRunner {
 
       const assembled = await done
       finalAssistantText = assembled.text
+      if (assembled.usage) {
+        usage.promptTokens += assembled.usage.promptTokens
+        usage.completionTokens += assembled.usage.completionTokens
+      }
 
       const assistantMessage: ChatMessage = {
         role: 'assistant',
@@ -75,7 +82,7 @@ export class AgentRunner {
       newMessages.push(assistantMessage)
 
       if (assembled.finishReason !== 'tool_calls' || assembled.toolCalls.length === 0) {
-        return { finalAssistantText, newMessages }
+        return { finalAssistantText, newMessages, usage }
       }
 
       for (const call of assembled.toolCalls) {
@@ -111,6 +118,6 @@ export class AgentRunner {
       type: 'error',
       message: `Agent stopped: reached max iterations (${opts.maxIterations}) without final answer`,
     })
-    return { finalAssistantText, newMessages }
+    return { finalAssistantText, newMessages, usage }
   }
 }

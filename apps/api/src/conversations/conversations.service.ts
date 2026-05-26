@@ -9,14 +9,14 @@ export class ConversationsService {
     return this.prisma.conversation.findMany({
       where: { userId },
       orderBy: { updatedAt: 'desc' },
-      select: { id: true, title: true, createdAt: true, updatedAt: true },
+      select: { id: true, title: true, model: true, createdAt: true, updatedAt: true },
     })
   }
 
   async create(userId: string, title?: string) {
     return this.prisma.conversation.create({
       data: { userId, title: title ?? 'New chat' },
-      select: { id: true, title: true, createdAt: true, updatedAt: true },
+      select: { id: true, title: true, model: true, createdAt: true, updatedAt: true },
     })
   }
 
@@ -44,13 +44,20 @@ export class ConversationsService {
     await this.prisma.conversation.delete({ where: { id } })
   }
 
-  async rename(userId: string, id: string, title: string) {
+  async update(userId: string, id: string, patch: { title?: string; model?: string | null }) {
     await this.assertOwner(userId, id)
-    const trimmed = title.trim().slice(0, 120) || 'New chat'
+    const data: { title?: string; model?: string | null } = {}
+    if (typeof patch.title === 'string') {
+      data.title = patch.title.trim().slice(0, 120) || 'New chat'
+    }
+    if (patch.model !== undefined) {
+      // null clears the override (revert to default); otherwise store the model id verbatim
+      data.model = patch.model || null
+    }
     return this.prisma.conversation.update({
       where: { id },
-      data: { title: trimmed },
-      select: { id: true, title: true, createdAt: true, updatedAt: true },
+      data,
+      select: { id: true, title: true, model: true, createdAt: true, updatedAt: true },
     })
   }
 }

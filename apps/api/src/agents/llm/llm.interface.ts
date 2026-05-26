@@ -43,10 +43,17 @@ export type ProviderEvent =
   | { kind: 'tool_call_end'; id: string }
   | { kind: 'message_end'; finishReason: 'stop' | 'tool_calls' | 'length' | 'error' }
 
+export interface UsageReport {
+  promptTokens: number
+  completionTokens: number
+}
+
 export interface AssembledResponse {
   text: string
   toolCalls: AssistantToolCall[]
   finishReason: 'stop' | 'tool_calls' | 'length' | 'error'
+  /** Best-effort token counts — undefined if the provider didn't surface them. */
+  usage?: UsageReport
 }
 
 export type ChatProviderName = 'openai' | 'anthropic' | 'deepseek'

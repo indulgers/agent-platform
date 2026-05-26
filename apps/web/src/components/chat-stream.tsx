@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { ArrowDown, Send, Square } from 'lucide-react'
 import { useChatStore } from '@/stores/chat-store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Kbd } from '@/components/ui/kbd'
 import { Message } from '@/components/message'
+import { ModelPicker } from '@/components/model-picker'
 import { Welcome } from '@/components/welcome'
 import { consumeSse } from '@/lib/sse'
 import { useRefreshConversations } from '@/lib/conversations'
@@ -170,9 +171,8 @@ export function ChatStream({ conversationId }: { conversationId: string }) {
             )}
           </div>
           <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground font-mono">
-            <span>{conversationId.slice(0, 8)}</span>
-            <span>·</span>
-            <span>{messages.length} messages</span>
+            <ModelPicker conversationId={conversationId} />
+            <UsageSummary />
             <span className="ml-auto flex items-center gap-1">
               <Kbd className="text-[10px]">⌘K</Kbd>
               <span>focus</span>
@@ -182,4 +182,43 @@ export function ChatStream({ conversationId }: { conversationId: string }) {
       </div>
     </div>
   )
+}
+
+function UsageSummary() {
+  const messages = useChatStore(s => s.messages)
+
+  const { totalTokens, totalCost, lastUsage } = useMemo(() => {
+    let totalTokens = 0
+    let totalCost = 0
+    let lastUsage: { promptTokens: number; completionTokens: number; costUsd: number } | undefined
+    for (const m of messages) {
+      if (m.role !== 'assistant' || !m.usage) continue
+      totalTokens += m.usage.promptTokens + m.usage.completionTokens
+      totalCost += m.usage.costUsd
+      lastUsage = m.usage
+    }
+    return { totalTokens, totalCost, lastUsage }
+  }, [messages])
+
+  if (!lastUsage) return null
+
+  return (
+    <>
+      <span className="opacity-60">·</span>
+      <span title="Last turn: input ↑ output ↓ cost">
+        ↑ {formatTokens(lastUsage.promptTokens)} · ↓ {formatTokens(lastUsage.completionTokens)} · $
+        {lastUsage.costUsd.toFixed(4)}
+      </span>
+      <span className="opacity-60">·</span>
+      <span title="Conversation total tokens / cost">
+        {formatTokens(totalTokens)} total · ${totalCost.toFixed(4)}
+      </span>
+    </>
+  )
+}
+
+function formatTokens(n: number): string {
+  if (n < 1000) return String(n)
+  if (n < 1000 * 1000) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'K'
+  return (n / 1_000_000).toFixed(1).replace(/\.0$/, '') + 'M'
 }

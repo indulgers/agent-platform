@@ -10,11 +10,20 @@ export interface UiToolEvent {
   error?: string
 }
 
+export interface UiUsage {
+  model: string
+  promptTokens: number
+  completionTokens: number
+  costUsd: number
+}
+
 export interface UiMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   tools: UiToolEvent[]
+  /** Only set on assistant messages once the server reported usage. */
+  usage?: UiUsage
 }
 
 interface ChatState {
@@ -121,6 +130,22 @@ export const useChatStore = create<ChatState>((set, get) => ({
                       }
                     : t,
                 ),
+              }
+            : m,
+        ),
+      }))
+    } else if (event.type === 'usage') {
+      set(s => ({
+        messages: s.messages.map(m =>
+          m.id === id
+            ? {
+                ...m,
+                usage: {
+                  model: event.model,
+                  promptTokens: event.promptTokens,
+                  completionTokens: event.completionTokens,
+                  costUsd: event.costUsd,
+                },
               }
             : m,
         ),

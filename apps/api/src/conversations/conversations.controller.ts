@@ -24,12 +24,12 @@ export class ConversationsController {
   }
 
   @Patch(':id')
-  rename(
+  update(
     @CurrentUser() user: CurrentUserPayload,
     @Param('id') id: string,
-    @Body() body: { title?: string },
+    @Body() body: { title?: string; model?: string | null },
   ) {
-    return this.conversations.rename(user.sub, id, body?.title ?? '')
+    return this.conversations.update(user.sub, id, body ?? {})
   }
 
   @Delete(':id')

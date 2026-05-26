@@ -95,9 +95,18 @@ export class OpenAIProvider implements ChatProvider {
           })),
           max_tokens: opts.maxTokens,
           stream: true,
+          stream_options: { include_usage: true },
         }, { signal: opts.signal })
 
+        let usage: { promptTokens: number; completionTokens: number } | undefined
+
         for await (const chunk of stream) {
+          if (chunk.usage) {
+            usage = {
+              promptTokens: chunk.usage.prompt_tokens ?? 0,
+              completionTokens: chunk.usage.completion_tokens ?? 0,
+            }
+          }
           const choice = chunk.choices[0]
           if (!choice) continue
           const delta = choice.delta
@@ -148,7 +157,7 @@ export class OpenAIProvider implements ChatProvider {
         }
 
         push({ kind: 'message_end', finishReason })
-        endResolve({ text: text.join(''), toolCalls: assembled, finishReason })
+        endResolve({ text: text.join(''), toolCalls: assembled, finishReason, usage })
       } catch (err) {
         push({ kind: 'message_end', finishReason: 'error' })
         endReject(err)

@@ -73,10 +73,17 @@ export class AnthropicProvider implements ChatProvider {
       const text: string[] = []
       const toolBuffers = new Map<number, { id: string; name: string; args: string }>()
       let finishReason: AssembledResponse['finishReason'] = 'stop'
+      const usage = { promptTokens: 0, completionTokens: 0 }
 
       try {
         for await (const event of stream) {
-          if (event.type === 'content_block_start') {
+          if (event.type === 'message_start') {
+            const msgUsage = event.message?.usage
+            if (msgUsage) {
+              usage.promptTokens = msgUsage.input_tokens ?? 0
+              usage.completionTokens = msgUsage.output_tokens ?? 0
+            }
+          } else if (event.type === 'content_block_start') {
             const block = event.content_block
             if (block.type === 'tool_use') {
               toolBuffers.set(event.index, { id: block.id, name: block.name, args: '' })
@@ -103,6 +110,10 @@ export class AnthropicProvider implements ChatProvider {
             else if (reason === 'end_turn') finishReason = 'stop'
             else if (reason === 'max_tokens') finishReason = 'length'
             else if (reason) finishReason = 'error'
+            // message_delta carries the final output_tokens (input_tokens were in message_start)
+            if (event.usage?.output_tokens != null) {
+              usage.completionTokens = event.usage.output_tokens
+            }
           }
         }
 
@@ -119,7 +130,9 @@ export class AnthropicProvider implements ChatProvider {
         }
 
         push({ kind: 'message_end', finishReason })
-        endResolve({ text: text.join(''), toolCalls: assembled, finishReason })
+        const finalUsage =
+          usage.promptTokens > 0 || usage.completionTokens > 0 ? usage : undefined
+        endResolve({ text: text.join(''), toolCalls: assembled, finishReason, usage: finalUsage })
       } catch (err) {
         push({ kind: 'message_end', finishReason: 'error' })
         endReject(err)

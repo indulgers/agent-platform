@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common'
 import { AgentsService } from './agents.service'
 import { AgentsController } from './agents.controller'
+import { ModelsController } from './models.controller'
 import { AgentRunner } from './runner/agent-runner'
 import { OpenAIProvider } from './llm/openai.provider'
 import { AnthropicProvider } from './llm/anthropic.provider'
@@ -12,6 +13,6 @@ import { MemoryModule } from '../memory/memory.module'
 @Module({
   imports: [ConversationsModule, MemoryModule],
   providers: [AgentsService, AgentRunner, OpenAIProvider, AnthropicProvider, DeepSeekProvider, ToolRegistry],
-  controllers: [AgentsController],
+  controllers: [AgentsController, ModelsController],
 })
 export class AgentsModule {}

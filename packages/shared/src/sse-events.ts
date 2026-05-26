@@ -7,6 +7,7 @@ export type SseEvent =
   | { type: 'tool_call'; id: string; name: string; args: unknown }
   | { type: 'tool_result'; id: string; ok: boolean; result?: unknown; error?: string }
   | { type: 'task_enqueued'; taskId: string }
+  | { type: 'usage'; model: string; promptTokens: number; completionTokens: number; costUsd: number }
   | { type: 'message_done'; messageId: string }
   | { type: 'error'; message: string }
   | { type: 'done' }

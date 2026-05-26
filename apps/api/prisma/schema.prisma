@@ -23,6 +23,9 @@ model Conversation {
   userId    String
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   title     String    @default("New chat")
+  /// nullable — if unset, the agent uses LLM_DEFAULT_PROVIDER + LLM_DEFAULT_MODEL.
+  /// Resolved against the static registry in agents/models.registry.ts.
+  model     String?
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   messages  Message[]
@@ -38,6 +41,9 @@ model Message {
   content        String
   toolCalls      Json?
   toolCallId     String?
+  /// Filled in for assistant messages only. Shape:
+  ///   { model: string, promptTokens: number, completionTokens: number, costUsd: number }
+  usage          Json?
   createdAt      DateTime     @default(now())
 
   @@index([conversationId, createdAt])

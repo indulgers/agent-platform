@@ -9,6 +9,7 @@ import { AnthropicProvider } from './llm/anthropic.provider'
 import { DeepSeekProvider } from './llm/deepseek.provider'
 import { MemoryService } from '../memory/memory.service'
 import type { AssistantToolCall, ChatMessage, ChatProvider } from './llm/llm.interface'
+import { calcCost, findModel } from './models.registry'
 import { loadEnv } from '../config/env'
 
 const SYSTEM_PROMPT = `You are agent-platform, a helpful multi-tool task agent.
@@ -37,8 +38,27 @@ export class AgentsService {
     private readonly memory: MemoryService,
   ) {}
 
-  private pickProvider(): ChatProvider {
-    switch (this.env.LLM_DEFAULT_PROVIDER) {
+  /**
+   * Resolve provider + model for a conversation. If the conversation has a
+   * model override that exists in the registry, route to that provider with
+   * that model id; otherwise fall back to env defaults.
+   */
+  private resolveProviderAndModel(modelOverride: string | null | undefined): {
+    provider: ChatProvider
+    model: string
+  } {
+    const entry = findModel(modelOverride)
+    if (entry) {
+      return { provider: this.providerByName(entry.provider), model: entry.id }
+    }
+    return {
+      provider: this.providerByName(this.env.LLM_DEFAULT_PROVIDER),
+      model: this.env.LLM_DEFAULT_MODEL,
+    }
+  }
+
+  private providerByName(name: string): ChatProvider {
+    switch (name) {
       case 'openai':
         return this.openai
       case 'deepseek':
@@ -87,11 +107,13 @@ export class AgentsService {
       })
     }
 
+    const { provider, model } = this.resolveProviderAndModel(conversation.model)
+
     let result
     try {
       result = await this.runner.run({
-        provider: this.pickProvider(),
-        model: this.env.LLM_DEFAULT_MODEL,
+        provider,
+        model,
         systemPrompt: SYSTEM_PROMPT,
         history,
         userMessage: args.content,
@@ -114,6 +136,14 @@ export class AgentsService {
       return { userMessageId: userMessageRow.id, assistantMessageIds: [], aborted: true }
     }
 
+    const costUsd = calcCost(model, result.usage.promptTokens, result.usage.completionTokens)
+    const usageJson: Prisma.InputJsonValue = {
+      model,
+      promptTokens: result.usage.promptTokens,
+      completionTokens: result.usage.completionTokens,
+      costUsd,
+    }
+
     const persisted: string[] = []
     for (const m of result.newMessages.slice(1)) {
       const row = await this.prisma.message.create({
@@ -123,9 +153,23 @@ export class AgentsService {
           content: m.content,
           toolCalls: m.toolCalls ? (m.toolCalls as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
           toolCallId: m.toolCallId ?? null,
+          // Only the final assistant message gets the usage block (one per turn).
+          usage: m.role === 'assistant' && m === result.newMessages[result.newMessages.length - 1]
+            ? usageJson
+            : Prisma.JsonNull,
         },
       })
       if (m.role === 'assistant') persisted.push(row.id)
+    }
+
+    if (result.usage.promptTokens > 0 || result.usage.completionTokens > 0) {
+      args.emit({
+        type: 'usage',
+        model,
+        promptTokens: result.usage.promptTokens,
+        completionTokens: result.usage.completionTokens,
+        costUsd,
+      })
     }
 
     await this.prisma.conversation.update({
