@@ -265,18 +265,28 @@
   color: var(--color-text-primary);
 }
 
-/* Light mode tweaks for code (github-dark.css is dark by default; light needs different background) */
+/* Light-mode tweaks. We keep fenced code blocks dark (à la Vercel / Linear docs)
+ * because github-dark.css's keyword / string / comment colours are tuned for a
+ * dark background; recolouring every token per theme is a lot of CSS for little
+ * gain. Inline `code` stays light-on-light — better for prose readability. */
 :root[data-theme='light'] .md .md-code {
-  background: #fafaf9;
+  background: #16171c;
+  border-color: rgba(0, 0, 0, 0.08);
 }
 :root[data-theme='light'] .md .md-code__bar {
-  background: #f0efed;
+  background: #1e1f25;
+  border-color: rgba(255, 255, 255, 0.06);
 }
-:root[data-theme='light'] .hljs {
-  background: transparent;
-  color: #15161a;
+:root[data-theme='light'] .md .md-code__lang { color: #9ca3af; }
+:root[data-theme='light'] .md .md-code__copy { color: #9ca3af; }
+:root[data-theme='light'] .md .md-code__copy:hover {
+  background: #26272e;
+  color: #f7f8f8;
+  border-color: rgba(255, 255, 255, 0.1);
 }
+:root[data-theme='light'] .md .md-code pre code { color: #f7f8f8; }
 :root[data-theme='light'] .md :not(pre) > code {
   background: #f0efed;
   color: var(--color-accent);
+  border-color: rgba(0, 0, 0, 0.07);
 }

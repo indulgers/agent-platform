@@ -3,8 +3,11 @@ import ReactDOM from 'react-dom/client'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider, createRouter } from '@tanstack/react-router'
 import { queryClient } from '@/lib/query-client'
+import { initTheme } from '@/lib/theme'
 import { routeTree } from '@/routeTree.gen'
 import './styles.css'
+
+initTheme()
 
 // In production the SPA lives under /app/. In dev it sits at /. Vite's base config
 // resolves assets; this aligns router URLs with the same prefix.

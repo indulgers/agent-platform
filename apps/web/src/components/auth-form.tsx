@@ -4,6 +4,7 @@ import { api, ApiError } from '@/lib/api'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Kbd } from '@/components/ui/kbd'
+import { NetworkSphere } from '@/components/network-sphere'
 import { useAuthStore } from '@/stores/auth-store'
 import type { AuthTokenResponse } from '@agent-platform/shared'
 
@@ -41,7 +42,7 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
 
   return (
     <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_440px] min-h-[calc(100vh-3.5rem)]">
-      {/* hero pane — quiet, illustrative */}
+      {/* hero pane — quiet, illustrative, with a slowly-rotating node sphere */}
       <aside
         className="hidden lg:flex flex-col justify-between p-10 border-r border-border relative overflow-hidden"
         style={{
@@ -49,7 +50,24 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
             'radial-gradient(60% 50% at 20% 20%, color-mix(in oklab, var(--color-accent) 15%, transparent) 0%, transparent 60%), var(--color-surface-1)',
         }}
       >
-        <div className="flex items-center gap-2 font-semibold text-sm tracking-[-0.011em]">
+        {/* 3D-projected network of nodes. Sits behind the copy at z-index 0,
+           foreground text uses pointer-events-none so the sphere is still
+           interactive (move the mouse to tilt it). */}
+        <div className="absolute inset-0 z-0">
+          <NetworkSphere />
+        </div>
+
+        {/* Soft vignette so the corner copy stays readable over busier nodes */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 z-[1] pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(120% 80% at 30% 80%, color-mix(in oklab, var(--color-surface-1) 80%, transparent) 0%, transparent 55%), radial-gradient(120% 80% at 0% 0%, color-mix(in oklab, var(--color-surface-1) 70%, transparent) 0%, transparent 50%)',
+          }}
+        />
+
+        <div className="relative z-[2] flex items-center gap-2 font-semibold text-sm tracking-[-0.011em] pointer-events-none">
           <span
             aria-hidden="true"
             className="w-5 h-5 rounded-md grid place-items-center shadow-sm"
@@ -63,8 +81,11 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
           <span>agent-platform</span>
         </div>
 
-        <div className="space-y-4 max-w-[36ch]">
-          <p className="font-display text-[26px] leading-[1.2] tracking-[-0.02em] text-foreground" style={{ fontFamily: "'Inter Tight', sans-serif" }}>
+        <div className="relative z-[2] space-y-4 max-w-[36ch] pointer-events-none">
+          <p
+            className="font-display text-[26px] leading-[1.2] tracking-[-0.02em] text-foreground"
+            style={{ fontFamily: "'Inter Tight', sans-serif" }}
+          >
             {mode === 'login' ? 'Welcome back. The agent is ready when you are.' : 'Spin up your own agent. In two minutes.'}
           </p>
           <p className="text-sm text-muted-foreground leading-[1.55]">
@@ -74,7 +95,7 @@ export function AuthForm({ mode }: { mode: 'login' | 'register' }) {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 text-[11px] font-mono text-muted-foreground tracking-[0.04em]">
+        <div className="relative z-[2] flex items-center gap-2 text-[11px] font-mono text-muted-foreground tracking-[0.04em] pointer-events-none">
           <span>v0.1</span>
           <span>·</span>
           <span>self-hosted</span>

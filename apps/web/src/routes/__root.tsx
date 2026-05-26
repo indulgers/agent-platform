@@ -1,12 +1,15 @@
 import { createRootRoute, Link, Outlet } from '@tanstack/react-router'
+import { Moon, Sun } from 'lucide-react'
 import { useAuthStore } from '@/stores/auth-store'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Kbd } from '@/components/ui/kbd'
+import { useTheme } from '@/lib/theme'
 
 function RootLayout() {
   const user = useAuthStore(s => s.user)
   const clear = useAuthStore(s => s.clear)
+  const { theme, toggle } = useTheme()
 
   return (
     <div className="min-h-screen flex flex-col bg-background">
@@ -30,6 +33,16 @@ function RootLayout() {
           </Link>
 
           <div className="flex items-center gap-2 text-[13px]">
+            <button
+              type="button"
+              onClick={toggle}
+              className="p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-[color:var(--color-surface-2)] border border-transparent hover:border-border transition-colors"
+              aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+              title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+            >
+              {theme === 'dark' ? <Sun className="w-3.5 h-3.5" /> : <Moon className="w-3.5 h-3.5" />}
+            </button>
+
             {user ? (
               <>
                 <span className="text-muted-foreground font-mono text-[12.5px]">{user.email}</span>
