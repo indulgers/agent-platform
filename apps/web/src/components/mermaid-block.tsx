@@ -1,9 +1,13 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 
 /**
  * Dynamically imports mermaid the first time a block is mounted and renders
- * the diagram into an inline-SVG container. Lazy because mermaid is ~600KB —
- * we don't want it in the main bundle for users who never see one.
+ * the diagram into inline SVG. Lazy because mermaid + its diagram backends
+ * are ~140KB gzipped per chunk — we don't want them in the main bundle.
+ *
+ * The SVG is stored in state and inserted via dangerouslySetInnerHTML, so a
+ * single element renders the SVG once it's available without needing a ref
+ * (avoiding the "ref unmounted while in loading state" timing bug).
  */
 
 let initPromise: Promise<typeof import('mermaid').default> | null = null
@@ -27,35 +31,39 @@ function loadMermaid(): Promise<typeof import('mermaid').default> {
 let renderCounter = 0
 
 export function MermaidBlock({ source }: { source: string }) {
-  const ref = useRef<HTMLDivElement>(null)
-  const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading')
+  const [svg, setSvg] = useState<string | null>(null)
   const [error, setError] = useState<string>('')
 
   useEffect(() => {
     let cancelled = false
-    setState('loading')
+    setSvg(null)
     setError('')
+
+    if (!source.trim()) {
+      setError('Empty mermaid block')
+      return
+    }
+
     ;(async () => {
       try {
         const mermaid = await loadMermaid()
         if (cancelled) return
         const id = `mmd-${++renderCounter}`
         const { svg } = await mermaid.render(id, source)
-        if (cancelled || !ref.current) return
-        ref.current.innerHTML = svg
-        setState('ok')
+        if (cancelled) return
+        setSvg(svg)
       } catch (err) {
         if (cancelled) return
         setError(err instanceof Error ? err.message : String(err))
-        setState('error')
       }
     })()
+
     return () => {
       cancelled = true
     }
   }, [source])
 
-  if (state === 'error') {
+  if (error) {
     return (
       <div className="my-3 border border-[color:color-mix(in_oklab,var(--color-danger)_40%,var(--color-hairline))] bg-[color:color-mix(in_oklab,var(--color-danger)_8%,var(--color-surface-1))] rounded-md overflow-hidden text-xs">
         <div className="px-3 py-1.5 border-b border-[color:var(--color-hairline)] font-mono text-[11px] text-[color:var(--color-danger)]">
@@ -70,11 +78,15 @@ export function MermaidBlock({ source }: { source: string }) {
   }
 
   return (
-    <div className="my-3 rounded-md border border-[color:var(--color-hairline)] bg-[color:var(--color-surface-2)] p-4 overflow-x-auto flex justify-center min-h-[80px]">
-      {state === 'loading' ? (
-        <div className="text-xs text-muted-foreground font-mono">rendering diagram…</div>
+    <div className="my-3 rounded-md border border-[color:var(--color-hairline)] bg-[color:var(--color-surface-2)] p-4 overflow-x-auto flex justify-center items-center min-h-[80px]">
+      {svg ? (
+        <div
+          className="mermaid-svg w-full flex justify-center"
+          // eslint-disable-next-line react/no-danger
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
       ) : (
-        <div ref={ref} className="mermaid-svg w-full" />
+        <div className="text-xs text-muted-foreground font-mono">rendering diagram…</div>
       )}
     </div>
   )
