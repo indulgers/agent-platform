@@ -101,15 +101,15 @@ At least one of `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY`.
 
 ```bash
 cd ~/agent-platform
-docker compose -f deploy/docker-compose.yml pull
-docker compose -f deploy/docker-compose.yml up -d
-docker compose -f deploy/docker-compose.yml ps   # all services 'healthy' / 'running'
+docker compose --env-file .env -f deploy/docker-compose.yml pull
+docker compose --env-file .env -f deploy/docker-compose.yml up -d
+docker compose --env-file .env -f deploy/docker-compose.yml ps   # all services 'healthy' / 'running'
 ```
 
 Apply the Prisma schema once:
 
 ```bash
-docker compose -f deploy/docker-compose.yml exec api pnpm exec prisma db push
+docker compose --env-file .env -f deploy/docker-compose.yml exec api pnpm exec prisma db push
 ```
 
 Hit it:
@@ -171,8 +171,8 @@ You can also do it directly on the VPS:
 ```bash
 cd ~/agent-platform
 export IMAGE_TAG=sha-abc1234
-docker compose -f deploy/docker-compose.yml pull
-docker compose -f deploy/docker-compose.yml up -d
+docker compose --env-file .env -f deploy/docker-compose.yml pull
+docker compose --env-file .env -f deploy/docker-compose.yml up -d
 ```
 
 ## Adding HTTPS (later, once a domain is wired up)
