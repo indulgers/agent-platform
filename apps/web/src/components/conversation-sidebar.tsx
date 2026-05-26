@@ -1,6 +1,6 @@
-import { useState, type KeyboardEvent } from 'react'
+import { useMemo, useState, type KeyboardEvent } from 'react'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { Plus, MessageSquare, MoreHorizontal, Pencil, Trash2 } from 'lucide-react'
+import { Plus, MessageSquare, MoreHorizontal, Pencil, Trash2, Search, X } from 'lucide-react'
 import {
   useConversations,
   useCreateConversation,
@@ -17,6 +17,13 @@ export function ConversationSidebar({ activeId }: { activeId?: string }) {
   const navigate = useNavigate()
   const { data: conversations = [], isLoading } = useConversations()
   const create = useCreateConversation()
+  const [query, setQuery] = useState('')
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return conversations
+    return conversations.filter(c => c.title.toLowerCase().includes(q))
+  }, [conversations, query])
 
   const onNewChat = async () => {
     const c = await create.mutateAsync({})
@@ -42,14 +49,47 @@ export function ConversationSidebar({ activeId }: { activeId?: string }) {
         </Button>
       </div>
 
-      <div className="px-3 py-2 text-[11px] font-mono text-muted-foreground tracking-[0.06em]">CONVERSATIONS</div>
+      <div className="px-3 pb-2">
+        <div className="relative">
+          <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+          <input
+            type="search"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search…"
+            className="w-full h-8 pl-7 pr-7 text-[12.5px] bg-[color:var(--color-surface-2)] border border-border rounded-md placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-[color:var(--color-accent)] focus:border-[color:var(--color-accent)] transition-colors"
+          />
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 rounded text-muted-foreground hover:text-foreground hover:bg-[color:var(--color-surface-3)]"
+              aria-label="Clear search"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="px-3 pb-2 text-[11px] font-mono text-muted-foreground tracking-[0.06em] flex items-center justify-between">
+        <span>CONVERSATIONS</span>
+        {query && (
+          <span className="text-[10px] normal-case tracking-normal">
+            {filtered.length} of {conversations.length}
+          </span>
+        )}
+      </div>
 
       <div className="flex-1 overflow-y-auto px-2 pb-3 space-y-0.5">
         {isLoading && <div className="px-2 text-xs text-muted-foreground">Loading…</div>}
         {!isLoading && conversations.length === 0 && (
           <div className="px-2 text-xs text-muted-foreground">No conversations yet.</div>
         )}
-        {conversations.map(c => (
+        {!isLoading && conversations.length > 0 && filtered.length === 0 && (
+          <div className="px-2 py-3 text-xs text-muted-foreground italic">No matches.</div>
+        )}
+        {filtered.map(c => (
           <ConversationRowItem key={c.id} conversation={c} active={c.id === activeId} />
         ))}
       </div>
