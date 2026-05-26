@@ -17,6 +17,7 @@ export function ChatStream({ conversationId }: { conversationId: string }) {
   const handleEvent = useChatStore(s => s.handleEvent)
   const stop = useChatStore(s => s.stop)
   const dropLastAssistant = useChatStore(s => s.dropLastAssistant)
+  const dropFromIndex = useChatStore(s => s.dropFromIndex)
   const refreshConversations = useRefreshConversations()
 
   const [draft, setDraft] = useState('')
@@ -75,6 +76,17 @@ export function ChatStream({ conversationId }: { conversationId: string }) {
     await stream(`/agents/${conversationId}/regenerate`, {})
   }
 
+  const editMessage = async (messageId: string, content: string) => {
+    if (isStreaming) return
+    // Drop the edited user message + everything after it locally so the UI
+    // doesn't briefly show stale content. Then add the new user message
+    // (which streams as a fresh assistant reply).
+    const idx = messages.findIndex(m => m.id === messageId)
+    if (idx >= 0) dropFromIndex(idx)
+    addUserMessage(content)
+    await stream(`/agents/${conversationId}/edit-message`, { messageId, content })
+  }
+
   const onKey = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault()
@@ -105,7 +117,9 @@ export function ChatStream({ conversationId }: { conversationId: string }) {
                 message={m}
                 isStreaming={isStreaming && i === messages.length - 1 && m.role === 'assistant'}
                 isLastAssistant={i === lastAssistantIdx && !isStreaming}
+                isStreamingAny={isStreaming}
                 onRegenerate={regenerate}
+                onEdit={editMessage}
               />
             ))}
           </div>

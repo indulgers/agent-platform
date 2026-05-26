@@ -32,6 +32,8 @@ interface ChatState {
   stop: () => void
   /** Drop the latest assistant message locally — used by regenerate before re-streaming. */
   dropLastAssistant: () => string | undefined
+  /** Drop the message at idx and everything after it. Used by edit-and-resend. */
+  dropFromIndex: (idx: number) => void
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -79,6 +81,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
       }
     }
     return undefined
+  },
+
+  dropFromIndex: idx => {
+    if (idx < 0) return
+    set(s => ({ messages: s.messages.slice(0, idx) }))
   },
 
   handleEvent: event => {

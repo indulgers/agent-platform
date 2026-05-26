@@ -183,6 +183,48 @@ export class AgentsService {
 
     return this.sendMessage({ ...args, content })
   }
+
+  /**
+   * Edit a previously-sent user message and re-stream from there. Replaces
+   * the message content and discards everything that came after it. The user
+   * row is recreated by sendMessage (timestamp moves forward — matches the
+   * user's mental model of "this is the new turn").
+   */
+  async editAndResend(args: {
+    userId: string
+    conversationId: string
+    messageId: string
+    content: string
+    emit: (event: SseEvent) => void
+    signal?: AbortSignal
+  }) {
+    await this.conversations.assertOwner(args.userId, args.conversationId)
+
+    const target = await this.prisma.message.findUnique({ where: { id: args.messageId } })
+    if (!target || target.conversationId !== args.conversationId) {
+      throw new BadRequestException('Message not found in this conversation')
+    }
+    if (target.role !== 'user') {
+      throw new BadRequestException('Only user messages can be edited')
+    }
+    const trimmed = args.content.trim()
+    if (trimmed.length === 0) throw new BadRequestException('Content cannot be empty')
+
+    await this.prisma.message.deleteMany({
+      where: {
+        conversationId: args.conversationId,
+        createdAt: { gte: target.createdAt },
+      },
+    })
+
+    return this.sendMessage({
+      userId: args.userId,
+      conversationId: args.conversationId,
+      content: trimmed,
+      emit: args.emit,
+      signal: args.signal,
+    })
+  }
 }
 
 /** Truncate user text into a one-line title at a word boundary if possible. */

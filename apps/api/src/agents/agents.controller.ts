@@ -9,6 +9,11 @@ interface SendMessageBody {
   content: string
 }
 
+interface EditMessageBody {
+  messageId: string
+  content: string
+}
+
 @Controller('agents')
 @UseGuards(JwtAuthGuard)
 export class AgentsController {
@@ -48,6 +53,31 @@ export class AgentsController {
       this.agents.regenerate({
         userId: user.sub,
         conversationId,
+        emit: this.makeEmit(res),
+        signal: controller.signal,
+      }),
+    )
+  }
+
+  /**
+   * Edit a previously-sent user message and re-stream. Body: messageId + new
+   * content. Deletes that message + everything after it on the server, then
+   * runs the agent as if the user had just typed the new content.
+   */
+  @Post(':conversationId/edit-message')
+  async editMessage(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('conversationId') conversationId: string,
+    @Body() body: EditMessageBody,
+    @Req() req: Request,
+    @Res() res: Response,
+  ) {
+    return this.handleStream(req, res, controller =>
+      this.agents.editAndResend({
+        userId: user.sub,
+        conversationId,
+        messageId: body.messageId,
+        content: body.content,
         emit: this.makeEmit(res),
         signal: controller.signal,
       }),
