@@ -44,12 +44,22 @@ jobs:
 
       - name: Compute tag
         id: tag
+        env:
+          RAW_INPUT: ${{ inputs.image_tag }}
         run: |
-          if [ -n "${{ inputs.image_tag }}" ]; then
-            echo "value=${{ inputs.image_tag }}" >> "$GITHUB_OUTPUT"
+          if [ -n "$RAW_INPUT" ]; then
+            # Docker tag must match [a-zA-Z0-9_.-]{1,128}. Normalise whatever
+            # the human typed: lowercase, replace any non-allowed char with '-',
+            # strip leading/trailing '-'. Fall back to sha-* on empty result.
+            slug=$(printf '%s' "$RAW_INPUT" \
+              | tr '[:upper:]' '[:lower:]' \
+              | sed -E 's/[^a-z0-9_.-]+/-/g; s/^-+//; s/-+$//')
+            tag="${slug:-sha-${GITHUB_SHA::7}}"
           else
-            echo "value=sha-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+            tag="sha-${GITHUB_SHA::7}"
           fi
+          echo "value=$tag" >> "$GITHUB_OUTPUT"
+          echo "Resolved image tag: $tag"
 
       - name: Setup Docker Buildx
         uses: docker/setup-buildx-action@v3

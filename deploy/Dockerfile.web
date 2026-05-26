@@ -12,6 +12,8 @@ RUN pnpm install --frozen-lockfile=false
 FROM deps AS build
 COPY packages ./packages
 COPY apps/web ./apps/web
+# Same reason as Dockerfile.api: shared must be compiled to dist/ first.
+RUN pnpm --filter @agent-platform/shared build
 RUN pnpm --filter @agent-platform/web build
 
 FROM nginx:1.27-alpine AS runtime
