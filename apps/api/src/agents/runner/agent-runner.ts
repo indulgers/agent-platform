@@ -14,6 +14,8 @@ export interface RunnerOptions {
   maxTokens: number
   /** Called for every SSE event the runner produces. */
   emit: (event: SseEvent) => void
+  /** Cancelled by the client closing the SSE connection. */
+  signal?: AbortSignal
 }
 
 export interface RunnerResult {
@@ -44,14 +46,18 @@ export class AgentRunner {
     let finalAssistantText = ''
 
     for (let iter = 0; iter < opts.maxIterations; iter++) {
+      if (opts.signal?.aborted) return { finalAssistantText, newMessages }
+
       const { events, done } = opts.provider.stream({
         model: opts.model,
         messages: conversation,
         tools: toolSpecs,
         maxTokens: opts.maxTokens,
+        signal: opts.signal,
       })
 
       for await (const evt of events) {
+        if (opts.signal?.aborted) return { finalAssistantText, newMessages }
         if (evt.kind === 'text_delta') {
           opts.emit({ type: 'token', delta: evt.delta })
         }

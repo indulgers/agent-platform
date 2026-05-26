@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import type { SseEvent } from '@agent-platform/shared'
 import { PrismaService } from '../prisma/prisma.service'
@@ -15,7 +15,13 @@ const SYSTEM_PROMPT = `You are agent-platform, a helpful multi-tool task agent.
 - Plan in short steps. When unsure, call a tool rather than guess.
 - Tools available: http_fetch (read public URLs), vector_search (recall the user's prior memories).
 - After you finish, write a concise, direct answer for the user.
-- Never invent tool results; only use what tools actually returned.`
+- Never invent tool results; only use what tools actually returned.
+- Format responses with markdown when it improves readability: fenced code blocks
+  with language hints, lists, tables, bold for key terms, links where appropriate.
+  Do not over-format short single-sentence answers.`
+
+const DEFAULT_TITLE = 'New chat'
+const TITLE_MAX_LEN = 48
 
 @Injectable()
 export class AgentsService {
@@ -48,6 +54,7 @@ export class AgentsService {
     conversationId: string
     content: string
     emit: (event: SseEvent) => void
+    signal?: AbortSignal
   }) {
     await this.conversations.assertOwner(args.userId, args.conversationId)
 
@@ -68,6 +75,18 @@ export class AgentsService {
       data: { conversationId: args.conversationId, role: 'user', content: args.content },
     })
 
+    // Auto-title: if the conversation still has the default title and this is
+    // the first user message, derive a short title from the content.
+    if (
+      conversation.title === DEFAULT_TITLE &&
+      conversation.messages.filter(m => m.role === 'user').length === 0
+    ) {
+      await this.prisma.conversation.update({
+        where: { id: args.conversationId },
+        data: { title: deriveTitle(args.content) },
+      })
+    }
+
     let result
     try {
       result = await this.runner.run({
@@ -80,15 +99,21 @@ export class AgentsService {
         maxIterations: this.env.AGENT_MAX_ITERATIONS,
         maxTokens: this.env.AGENT_MAX_TOKENS,
         emit: args.emit,
+        signal: args.signal,
       })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      args.emit({ type: 'error', message })
+      const aborted = args.signal?.aborted || isAbortError(err)
+      if (!aborted) {
+        const message = err instanceof Error ? err.message : String(err)
+        args.emit({ type: 'error', message })
+        args.emit({ type: 'done' })
+        throw err
+      }
+      // Aborted: don't re-emit (client already gone)
       args.emit({ type: 'done' })
-      throw err
+      return { userMessageId: userMessageRow.id, assistantMessageIds: [], aborted: true }
     }
 
-    // Persist assistant + tool messages produced during the run (skip the user msg, already saved).
     const persisted: string[] = []
     for (const m of result.newMessages.slice(1)) {
       const row = await this.prisma.message.create({
@@ -108,7 +133,6 @@ export class AgentsService {
       data: { updatedAt: new Date() },
     })
 
-    // Best-effort: ingest the user prompt + assistant answer into memory.
     this.memory
       .ingest({
         userId: args.userId,
@@ -122,4 +146,56 @@ export class AgentsService {
 
     return { userMessageId: userMessageRow.id, assistantMessageIds: persisted }
   }
+
+  /**
+   * Regenerate the last assistant response by:
+   *  1. finding the last user message
+   *  2. deleting it + all messages after it (assistant + tools)
+   *  3. re-running sendMessage with the same content
+   *
+   * Same effect as the user typing the same message again, but doesn't
+   * require an extra round-trip from the client.
+   */
+  async regenerate(args: {
+    userId: string
+    conversationId: string
+    emit: (event: SseEvent) => void
+    signal?: AbortSignal
+  }) {
+    await this.conversations.assertOwner(args.userId, args.conversationId)
+
+    const lastUser = await this.prisma.message.findFirst({
+      where: { conversationId: args.conversationId, role: 'user' },
+      orderBy: { createdAt: 'desc' },
+    })
+    if (!lastUser) throw new BadRequestException('No user message to regenerate from')
+
+    const content = lastUser.content
+
+    // Delete the last user message and everything after it. sendMessage will
+    // create a fresh user row + re-stream.
+    await this.prisma.message.deleteMany({
+      where: {
+        conversationId: args.conversationId,
+        createdAt: { gte: lastUser.createdAt },
+      },
+    })
+
+    return this.sendMessage({ ...args, content })
+  }
+}
+
+/** Truncate user text into a one-line title at a word boundary if possible. */
+function deriveTitle(content: string): string {
+  const oneLine = content.replace(/\s+/g, ' ').trim()
+  if (oneLine.length <= TITLE_MAX_LEN) return oneLine || DEFAULT_TITLE
+  const cut = oneLine.slice(0, TITLE_MAX_LEN)
+  const space = cut.lastIndexOf(' ')
+  return (space > 24 ? cut.slice(0, space) : cut) + '…'
+}
+
+function isAbortError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false
+  const e = err as { name?: string; code?: string }
+  return e.name === 'AbortError' || e.code === 'ABORT_ERR'
 }

@@ -43,4 +43,14 @@ export class ConversationsService {
     await this.assertOwner(userId, id)
     await this.prisma.conversation.delete({ where: { id } })
   }
+
+  async rename(userId: string, id: string, title: string) {
+    await this.assertOwner(userId, id)
+    const trimmed = title.trim().slice(0, 120) || 'New chat'
+    return this.prisma.conversation.update({
+      where: { id },
+      data: { title: trimmed },
+      select: { id: true, title: true, createdAt: true, updatedAt: true },
+    })
+  }
 }

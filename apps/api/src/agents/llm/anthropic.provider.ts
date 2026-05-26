@@ -68,7 +68,7 @@ export class AnthropicProvider implements ChatProvider {
           input_schema: t.parameters as { type: 'object'; properties?: unknown; [k: string]: unknown },
         })),
         messages: dialogue.map(m => this.toAnthropicMessage(m)),
-      })
+      }, { signal: opts.signal })
 
       const text: string[] = []
       const toolBuffers = new Map<number, { id: string; name: string; args: string }>()

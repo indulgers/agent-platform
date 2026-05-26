@@ -95,7 +95,7 @@ export class OpenAIProvider implements ChatProvider {
           })),
           max_tokens: opts.maxTokens,
           stream: true,
-        })
+        }, { signal: opts.signal })
 
         for await (const chunk of stream) {
           const choice = chunk.choices[0]

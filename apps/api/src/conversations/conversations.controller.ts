@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common'
 import { ConversationsService } from './conversations.service'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator'
@@ -21,6 +21,15 @@ export class ConversationsController {
   @Get(':id')
   get(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
     return this.conversations.getWithMessages(user.sub, id)
+  }
+
+  @Patch(':id')
+  rename(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('id') id: string,
+    @Body() body: { title?: string },
+  ) {
+    return this.conversations.rename(user.sub, id, body?.title ?? '')
   }
 
   @Delete(':id')
