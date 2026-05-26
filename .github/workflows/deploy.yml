@@ -91,6 +91,11 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Bind to the GitHub Environment named 'prod' so the SSH_* / DEPLOY_DIR
+    # secrets stored there become visible to this job. Without this line
+    # appleboy/ssh-action reads empty values and fails with
+    # "can't connect without a private SSH key or password".
+    environment: prod
 
     steps:
       - uses: actions/checkout@v4
