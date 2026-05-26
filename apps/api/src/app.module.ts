@@ -8,6 +8,7 @@ import { ConversationsModule } from './conversations/conversations.module'
 import { AgentsModule } from './agents/agents.module'
 import { TasksModule } from './tasks/tasks.module'
 import { MemoryModule } from './memory/memory.module'
+import { UploadsModule } from './uploads/uploads.module'
 import { HealthController } from './common/health.controller'
 
 @Module({
@@ -17,6 +18,7 @@ import { HealthController } from './common/health.controller'
       connection: { url: process.env.REDIS_URL ?? 'redis://localhost:6379' },
     }),
     PrismaModule,
+    UploadsModule,
     AuthModule,
     UsersModule,
     ConversationsModule,

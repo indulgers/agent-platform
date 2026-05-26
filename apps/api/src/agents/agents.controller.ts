@@ -5,13 +5,23 @@ import { AgentsService } from './agents.service'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator'
 
+interface AttachmentInput {
+  key: string
+  kind: 'image'
+  mediaType: string
+  size: number
+  originalName?: string
+}
+
 interface SendMessageBody {
   content: string
+  attachments?: AttachmentInput[]
 }
 
 interface EditMessageBody {
   messageId: string
   content: string
+  attachments?: AttachmentInput[]
 }
 
 @Controller('agents')
@@ -32,6 +42,7 @@ export class AgentsController {
         userId: user.sub,
         conversationId,
         content: body.content,
+        attachments: body.attachments,
         emit: this.makeEmit(res),
         signal: controller.signal,
       }),
@@ -78,6 +89,7 @@ export class AgentsController {
         conversationId,
         messageId: body.messageId,
         content: body.content,
+        attachments: body.attachments,
         emit: this.makeEmit(res),
         signal: controller.signal,
       }),

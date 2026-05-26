@@ -29,6 +29,15 @@ const envSchema = z.object({
 
   WEB_ORIGIN: z.string().url().default('http://localhost:5173'),
 
+  // S3-compatible storage. _ENDPOINT = backend talks to MinIO; _PUBLIC_ENDPOINT
+  // = the URL the browser PUTs to via presigned URL.
+  S3_ENDPOINT: z.string().url().optional(),
+  S3_PUBLIC_ENDPOINT: z.string().url().optional(),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_ACCESS_KEY: z.string().optional(),
+  S3_SECRET_KEY: z.string().optional(),
+  S3_BUCKET: z.string().default('agent-platform'),
+
   AGENT_MAX_ITERATIONS: z.coerce.number().int().positive().default(8),
   AGENT_MAX_TOKENS: z.coerce.number().int().positive().default(4096),
 })

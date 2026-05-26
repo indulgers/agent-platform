@@ -16,6 +16,9 @@ interface ConversationWithMessages {
     content: string
     toolCalls?: unknown
     usage?: { model: string; promptTokens: number; completionTokens: number; costUsd: number } | null
+    attachments?:
+      | Array<{ key: string; kind: 'image'; mediaType: string; size: number; originalName?: string }>
+      | null
   }>
 }
 
@@ -38,7 +41,14 @@ function ChatPage() {
     api<ConversationWithMessages>(`/conversations/${id}`).then(convo => {
       const ui: UiMessage[] = []
       for (const m of convo.messages) {
-        if (m.role === 'user') ui.push({ id: m.id, role: 'user', content: m.content, tools: [] })
+        if (m.role === 'user')
+          ui.push({
+            id: m.id,
+            role: 'user',
+            content: m.content,
+            tools: [],
+            attachments: m.attachments ?? undefined,
+          })
         else if (m.role === 'assistant')
           ui.push({
             id: m.id,

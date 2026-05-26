@@ -87,6 +87,23 @@ export class OpenAIProvider implements ChatProvider {
                 })),
               } as const
             }
+            // user message with image attachments → multipart content array
+            if (m.role === 'user' && m.attachments?.length) {
+              const parts: Array<
+                | { type: 'text'; text: string }
+                | { type: 'image_url'; image_url: { url: string } }
+              > = []
+              if (m.content) parts.push({ type: 'text', text: m.content })
+              for (const a of m.attachments) {
+                if (a.kind === 'image') {
+                  parts.push({
+                    type: 'image_url',
+                    image_url: { url: `data:${a.mediaType};base64,${a.dataBase64}` },
+                  })
+                }
+              }
+              return { role: 'user', content: parts } as const
+            }
             return { role: m.role, content: m.content } as const
           }),
           tools: opts.tools.map(t => ({

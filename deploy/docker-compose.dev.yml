@@ -41,6 +41,53 @@ services:
       timeout: 5s
       retries: 10
 
+  # S3-compatible object storage for attachments (images today; PDFs later).
+  # Host ports shifted off the 9000/9001 defaults to coexist with other
+  # MinIO instances. S3 API on :9100, web console on :9101.
+  minio:
+    image: minio/minio:RELEASE.2024-09-13T20-26-02Z
+    container_name: agent-platform-minio
+    restart: unless-stopped
+    command: server /data --console-address ':9001'
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - '9100:9000'
+      - '9101:9001'
+    volumes:
+      - miniodata:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:9000/minio/health/live']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # One-shot bootstrap: create the bucket + set permissive CORS on it so the
+  # browser can PUT directly via a presigned URL. Exits 0 once done.
+  minio-init:
+    image: minio/mc:latest
+    container_name: agent-platform-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: 'no'
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        mc alias set local http://minio:9000 minioadmin minioadmin
+        mc mb --ignore-existing local/agent-platform
+        # Allow direct browser PUT/GET via presigned URLs from any origin during dev.
+        # In production point S3_PUBLIC_ENDPOINT at the same host as the web app to
+        # sidestep CORS entirely.
+        mc anonymous set download local/agent-platform || true
+        mc admin config set local cors_allow_origin="*" || true
+        mc admin service restart local --wait || true
+        echo "agent-platform bucket ready"
+
 volumes:
   pgdata:
   redisdata:
+  miniodata:

@@ -42,8 +42,11 @@ model Message {
   toolCalls      Json?
   toolCallId     String?
   /// Filled in for assistant messages only. Shape:
-  ///   { model: string, promptTokens: number, completionTokens: number, costUsd: number }
+  ///   { model, promptTokens, completionTokens, costUsd }
   usage          Json?
+  /// Image attachments on a user message. Shape:
+  ///   [{ key, kind: 'image', mediaType, size, originalName }]
+  attachments    Json?
   createdAt      DateTime     @default(now())
 
   @@index([conversationId, createdAt])

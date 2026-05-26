@@ -165,6 +165,23 @@ export class AnthropicProvider implements ChatProvider {
       }
       return { role: 'assistant', content: blocks }
     }
+    if (m.role === 'user' && m.attachments?.length) {
+      const blocks: Array<Anthropic.ImageBlockParam | Anthropic.TextBlockParam> = []
+      for (const a of m.attachments) {
+        if (a.kind === 'image') {
+          blocks.push({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: a.mediaType as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp',
+              data: a.dataBase64,
+            },
+          })
+        }
+      }
+      if (m.content) blocks.push({ type: 'text', text: m.content })
+      return { role: 'user', content: blocks }
+    }
     return { role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content }
   }
 }

@@ -13,6 +13,16 @@ export interface ChatMessage {
   toolCalls?: AssistantToolCall[]
   /** When role === 'tool': the id of the tool call this message answers. */
   toolCallId?: string
+  /** Image attachments on a user message — resolved to base64 by the service
+   *  before the provider sees them, so adapters never need to hit S3. */
+  attachments?: ChatAttachment[]
+}
+
+export interface ChatAttachment {
+  kind: 'image'
+  mediaType: string
+  /** Raw base64 payload (no `data:` URL prefix). */
+  dataBase64: string
 }
 
 export interface AssistantToolCall {

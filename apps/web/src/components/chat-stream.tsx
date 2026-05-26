@@ -1,5 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
-import { ArrowDown, Send, Square } from 'lucide-react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ClipboardEvent,
+  type DragEvent,
+  type KeyboardEvent,
+} from 'react'
+import { ArrowDown, Paperclip, Send, Square } from 'lucide-react'
 import { useChatStore } from '@/stores/chat-store'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -7,8 +16,14 @@ import { Kbd } from '@/components/ui/kbd'
 import { Message } from '@/components/message'
 import { ModelPicker } from '@/components/model-picker'
 import { Welcome } from '@/components/welcome'
+import {
+  ComposerAttachments,
+  useAttachmentDraft,
+  type DraftAttachment,
+} from '@/components/composer-attachments'
 import { consumeSse } from '@/lib/sse'
-import { useRefreshConversations } from '@/lib/conversations'
+import { useConversations, useModels, useRefreshConversations } from '@/lib/conversations'
+import { isImageFile, isTextFile, languageFromName, readTextFile } from '@/lib/uploads'
 
 export function ChatStream({ conversationId }: { conversationId: string }) {
   const messages = useChatStore(s => s.messages)
@@ -20,11 +35,23 @@ export function ChatStream({ conversationId }: { conversationId: string }) {
   const dropLastAssistant = useChatStore(s => s.dropLastAssistant)
   const dropFromIndex = useChatStore(s => s.dropFromIndex)
   const refreshConversations = useRefreshConversations()
+  const { data: models } = useModels()
+  const { data: conversations } = useConversations()
 
   const [draft, setDraft] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [autoScroll, setAutoScroll] = useState(true)
+  const [isDragOver, setIsDragOver] = useState(false)
+
+  const draft_ = useAttachmentDraft()
+
+  // Vision-capability awareness for the active model
+  const conversation = conversations?.find(c => c.id === conversationId)
+  const activeModelId = conversation?.model ?? models?.defaultModel
+  const activeModel = models?.models.find(m => m.id === activeModelId)
+  const visionSupported = activeModel?.supportsVision ?? true
 
   // Auto-scroll only while the user hasn't scrolled up themselves.
   useEffect(() => {
@@ -51,6 +78,43 @@ export function ChatStream({ conversationId }: { conversationId: string }) {
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [])
 
+  const ingestFiles = useCallback(
+    async (files: File[] | FileList) => {
+      const list = Array.from(files)
+      for (const f of list) {
+        if (isImageFile(f)) {
+          draft_.addImage(f)
+        } else if (isTextFile(f)) {
+          try {
+            const text = await readTextFile(f)
+            draft_.addText(f, text, languageFromName(f.name))
+          } catch {
+            /* surface later as a chip error if we want */
+          }
+        }
+      }
+    },
+    [draft_],
+  )
+
+  const onDrop = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    if (e.dataTransfer.files.length) void ingestFiles(e.dataTransfer.files)
+  }
+
+  const onPaste = (e: ClipboardEvent<HTMLTextAreaElement>) => {
+    const files: File[] = []
+    for (const item of e.clipboardData.items) {
+      const file = item.getAsFile()
+      if (file) files.push(file)
+    }
+    if (files.length > 0) {
+      e.preventDefault()
+      void ingestFiles(files)
+    }
+  }
+
   const stream = async (path: string, body: unknown) => {
     const controller = beginAssistant()
     try {
@@ -63,12 +127,33 @@ export function ChatStream({ conversationId }: { conversationId: string }) {
     }
   }
 
+  const buildContent = (raw: string, textAttachments: DraftAttachment[]): string => {
+    if (textAttachments.length === 0) return raw
+    const blocks = textAttachments
+      .filter((a): a is Extract<DraftAttachment, { kind: 'text' }> => a.kind === 'text')
+      .map(a => `\`\`\`${a.language}\n# ${a.name}\n${a.content}\n\`\`\``)
+      .join('\n\n')
+    return raw ? `${blocks}\n\n${raw}` : blocks
+  }
+
   const submit = async () => {
-    const content = draft.trim()
-    if (!content || isStreaming) return
+    if (isStreaming || draft_.isBusy) return
+    const trimmed = draft.trim()
+    const hasContent = trimmed.length > 0
+    const hasAttachments = draft_.attachments.length > 0
+    if (!hasContent && !hasAttachments) return
+
+    const textAttachments = draft_.attachments.filter(a => a.kind === 'text')
+    const content = buildContent(trimmed, textAttachments)
+    const attachments = draft_.readyImages
+
     setDraft('')
-    addUserMessage(content)
-    await stream(`/agents/${conversationId}/messages`, { content })
+    draft_.clear()
+    addUserMessage(content, attachments.length > 0 ? attachments : undefined)
+    await stream(`/agents/${conversationId}/messages`, {
+      content,
+      attachments: attachments.length > 0 ? attachments : undefined,
+    })
   }
 
   const regenerate = async () => {
@@ -79,9 +164,6 @@ export function ChatStream({ conversationId }: { conversationId: string }) {
 
   const editMessage = async (messageId: string, content: string) => {
     if (isStreaming) return
-    // Drop the edited user message + everything after it locally so the UI
-    // doesn't briefly show stale content. Then add the new user message
-    // (which streams as a fresh assistant reply).
     const idx = messages.findIndex(m => m.id === messageId)
     if (idx >= 0) dropFromIndex(idx)
     addUserMessage(content)
@@ -104,9 +186,22 @@ export function ChatStream({ conversationId }: { conversationId: string }) {
   }
 
   const isEmpty = messages.length === 0
+  const canSend = !isStreaming && !draft_.isBusy && (draft.trim().length > 0 || draft_.attachments.length > 0)
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 relative">
+    <div
+      className="flex-1 flex flex-col min-w-0 relative"
+      onDragOver={e => {
+        e.preventDefault()
+        if (!isDragOver) setIsDragOver(true)
+      }}
+      onDragLeave={e => {
+        // only clear if leaving the outermost container
+        if ((e.target as HTMLElement).contains(e.relatedTarget as Node)) return
+        setIsDragOver(false)
+      }}
+      onDrop={onDrop}
+    >
       <div ref={scrollRef} onScroll={onScroll} className="flex-1 overflow-y-auto">
         {isEmpty ? (
           <Welcome onPick={p => { setDraft(p); composerRef.current?.focus() }} />
@@ -127,6 +222,12 @@ export function ChatStream({ conversationId }: { conversationId: string }) {
         )}
       </div>
 
+      {isDragOver && (
+        <div className="absolute inset-0 pointer-events-none bg-[color:color-mix(in_oklab,var(--color-accent)_8%,transparent)] border-2 border-dashed border-[color:var(--color-accent)] z-20 grid place-items-center">
+          <div className="text-sm font-mono text-[color:var(--color-accent-soft)]">Drop files to attach</div>
+        </div>
+      )}
+
       {!autoScroll && !isEmpty && (
         <button
           type="button"
@@ -134,7 +235,7 @@ export function ChatStream({ conversationId }: { conversationId: string }) {
             setAutoScroll(true)
             if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight
           }}
-          className="absolute bottom-[100px] right-6 z-10 inline-flex items-center justify-center w-8 h-8 rounded-full bg-[color:var(--color-surface-2)] border border-border shadow-sm text-muted-foreground hover:text-foreground hover:border-[color:var(--color-hairline-strong)] transition-colors"
+          className="absolute bottom-[140px] right-6 z-10 inline-flex items-center justify-center w-8 h-8 rounded-full bg-[color:var(--color-surface-2)] border border-border shadow-sm text-muted-foreground hover:text-foreground hover:border-[color:var(--color-hairline-strong)] transition-colors"
           aria-label="Scroll to latest"
         >
           <ArrowDown className="w-3.5 h-3.5" />
@@ -143,33 +244,73 @@ export function ChatStream({ conversationId }: { conversationId: string }) {
 
       <div className="border-t border-border p-4">
         <div className="max-w-3xl w-full mx-auto">
-          <div className="flex gap-2 items-end">
-            <div className="relative flex-1">
-              <Textarea
-                ref={composerRef}
-                placeholder={isStreaming ? 'Streaming…' : 'Ask the agent something…'}
-                value={draft}
-                onChange={e => setDraft(e.target.value)}
-                onKeyDown={onKey}
+          <div className="rounded-xl border border-border bg-[color:var(--color-surface-2)] focus-within:border-[color:var(--color-hairline-strong)] transition-colors">
+            <ComposerAttachments
+              attachments={draft_.attachments}
+              onRemove={draft_.remove}
+              visionUnsupported={!visionSupported}
+              modelDisplayName={activeModel?.displayName}
+            />
+
+            <div className="flex gap-2 items-end p-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
                 disabled={isStreaming}
-                rows={2}
-                className="bg-[color:var(--color-surface-2)] resize-none pr-24"
+                className="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-[color:var(--color-surface-3)] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                title="Attach file"
+                aria-label="Attach file"
+              >
+                <Paperclip className="w-4 h-4" />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                accept="image/png,image/jpeg,image/gif,image/webp,text/*,.json,.yaml,.yml,.md,.csv,.sql,.ts,.tsx,.js,.jsx,.py,.go,.rs,.sh,.toml,.ini,.conf,.dockerfile,Dockerfile"
+                className="hidden"
+                onChange={e => {
+                  if (e.target.files?.length) void ingestFiles(e.target.files)
+                  e.target.value = ''
+                }}
               />
-              <div className="absolute right-3 bottom-2.5 flex items-center gap-1 pointer-events-none opacity-60">
-                <Kbd>↵</Kbd>
-                <span className="text-[11px] text-muted-foreground">to send</span>
+
+              <div className="relative flex-1">
+                <Textarea
+                  ref={composerRef}
+                  placeholder={
+                    isStreaming
+                      ? 'Streaming…'
+                      : draft_.attachments.length > 0
+                        ? 'Add a note (optional)…'
+                        : 'Ask the agent something — paste or drop a file to attach'
+                  }
+                  value={draft}
+                  onChange={e => setDraft(e.target.value)}
+                  onKeyDown={onKey}
+                  onPaste={onPaste}
+                  disabled={isStreaming}
+                  rows={2}
+                  className="bg-transparent border-0 resize-none pr-20 focus-visible:ring-0 focus-visible:ring-offset-0"
+                />
+                <div className="absolute right-2 bottom-2 flex items-center gap-1 pointer-events-none opacity-60">
+                  <Kbd>↵</Kbd>
+                  <span className="text-[11px] text-muted-foreground">send</span>
+                </div>
               </div>
+
+              {isStreaming ? (
+                <Button onClick={stop} variant="secondary" className="gap-1.5">
+                  <Square className="w-3 h-3 fill-current" /> Stop
+                </Button>
+              ) : (
+                <Button onClick={submit} disabled={!canSend} className="gap-1.5">
+                  <Send className="w-3.5 h-3.5" /> Send
+                </Button>
+              )}
             </div>
-            {isStreaming ? (
-              <Button onClick={stop} variant="secondary" className="gap-1.5">
-                <Square className="w-3 h-3 fill-current" /> Stop
-              </Button>
-            ) : (
-              <Button onClick={submit} disabled={draft.trim().length === 0} className="gap-1.5">
-                <Send className="w-3.5 h-3.5" /> Send
-              </Button>
-            )}
           </div>
+
           <div className="mt-2 flex items-center gap-3 text-[11px] text-muted-foreground font-mono">
             <ModelPicker conversationId={conversationId} />
             <UsageSummary />

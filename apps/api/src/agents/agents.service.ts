@@ -8,9 +8,19 @@ import { OpenAIProvider } from './llm/openai.provider'
 import { AnthropicProvider } from './llm/anthropic.provider'
 import { DeepSeekProvider } from './llm/deepseek.provider'
 import { MemoryService } from '../memory/memory.service'
-import type { AssistantToolCall, ChatMessage, ChatProvider } from './llm/llm.interface'
+import type { AssistantToolCall, ChatAttachment, ChatMessage, ChatProvider } from './llm/llm.interface'
 import { calcCost, findModel } from './models.registry'
+import { S3Service } from '../uploads/s3.service'
 import { loadEnv } from '../config/env'
+
+/** Snapshot of an attachment as persisted on Message.attachments. */
+export interface PersistedAttachment {
+  key: string
+  kind: 'image'
+  mediaType: string
+  size: number
+  originalName?: string
+}
 
 const SYSTEM_PROMPT = `You are agent-platform, a helpful multi-tool task agent.
 - Plan in short steps. When unsure, call a tool rather than guess.
@@ -36,6 +46,7 @@ export class AgentsService {
     private readonly anthropic: AnthropicProvider,
     private readonly deepseek: DeepSeekProvider,
     private readonly memory: MemoryService,
+    private readonly s3: S3Service,
   ) {}
 
   /**
@@ -75,6 +86,9 @@ export class AgentsService {
     content: string
     emit: (event: SseEvent) => void
     signal?: AbortSignal
+    /** Optional image attachments. Each is referenced by an S3 key that the
+     *  client got from POST /api/uploads/presign. */
+    attachments?: PersistedAttachment[]
   }) {
     await this.conversations.assertOwner(args.userId, args.conversationId)
 
@@ -84,16 +98,47 @@ export class AgentsService {
     })
     if (!conversation) throw new NotFoundException('Conversation not found')
 
+    // Resolve provider/model first — we need to know vision capability before
+    // we waste an S3 round-trip on attachments that won't be used anyway.
+    const { provider, model } = this.resolveProviderAndModel(conversation.model)
+    const modelEntry = findModel(model)
+    const acceptAttachments = !!modelEntry?.supportsVision && (args.attachments?.length ?? 0) > 0
+    const droppedAttachments = !acceptAttachments && (args.attachments?.length ?? 0) > 0
+
+    const incomingAttachments: PersistedAttachment[] = acceptAttachments ? args.attachments! : []
+
+    // Pull each image from S3 once and base64-encode it so the provider
+    // adapters get a self-contained payload.
+    const chatAttachments: ChatAttachment[] = []
+    for (const a of incomingAttachments) {
+      const { data } = await this.s3.fetchAsBase64(a.key)
+      chatAttachments.push({ kind: 'image', mediaType: a.mediaType, dataBase64: data })
+    }
+
     const history: ChatMessage[] = conversation.messages.map(m => ({
       role: m.role as ChatMessage['role'],
       content: m.content,
       toolCalls: (m.toolCalls as unknown as AssistantToolCall[] | null) ?? undefined,
       toolCallId: m.toolCallId ?? undefined,
+      // History attachments aren't re-sent to the LLM — they were already
+      // consumed in the previous turn. Vision models don't reuse them.
     }))
 
     const userMessageRow = await this.prisma.message.create({
-      data: { conversationId: args.conversationId, role: 'user', content: args.content },
+      data: {
+        conversationId: args.conversationId,
+        role: 'user',
+        content: args.content,
+        attachments: incomingAttachments.length > 0 ? (incomingAttachments as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+      },
     })
+
+    if (droppedAttachments) {
+      args.emit({
+        type: 'error',
+        message: `Active model ${modelEntry?.displayName ?? model} does not support vision — attached image(s) were ignored.`,
+      })
+    }
 
     // Auto-title: if the conversation still has the default title and this is
     // the first user message, derive a short title from the content.
@@ -107,8 +152,6 @@ export class AgentsService {
       })
     }
 
-    const { provider, model } = this.resolveProviderAndModel(conversation.model)
-
     let result
     try {
       result = await this.runner.run({
@@ -117,6 +160,7 @@ export class AgentsService {
         systemPrompt: SYSTEM_PROMPT,
         history,
         userMessage: args.content,
+        userAttachments: chatAttachments.length > 0 ? chatAttachments : undefined,
         ctx: { userId: args.userId, conversationId: args.conversationId },
         maxIterations: this.env.AGENT_MAX_ITERATIONS,
         maxTokens: this.env.AGENT_MAX_TOKENS,
@@ -241,6 +285,7 @@ export class AgentsService {
     content: string
     emit: (event: SseEvent) => void
     signal?: AbortSignal
+    attachments?: PersistedAttachment[]
   }) {
     await this.conversations.assertOwner(args.userId, args.conversationId)
 
@@ -265,6 +310,7 @@ export class AgentsService {
       userId: args.userId,
       conversationId: args.conversationId,
       content: trimmed,
+      attachments: args.attachments,
       emit: args.emit,
       signal: args.signal,
     })

@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import type { SseEvent } from '@agent-platform/shared'
-import type { ChatMessage, ChatProvider, ToolSpec } from '../llm/llm.interface'
+import type { ChatAttachment, ChatMessage, ChatProvider, ToolSpec } from '../llm/llm.interface'
 import { ToolRegistry } from '../tools'
 
 export interface RunnerOptions {
@@ -9,6 +9,8 @@ export interface RunnerOptions {
   systemPrompt: string
   history: ChatMessage[]
   userMessage: string
+  /** Image attachments delivered with the user message (base64-resolved). */
+  userAttachments?: ChatAttachment[]
   ctx: { userId: string; conversationId: string }
   maxIterations: number
   maxTokens: number
@@ -39,12 +41,17 @@ export class AgentRunner {
       parameters: t.parameters,
     }))
 
+    const userTurn: ChatMessage = {
+      role: 'user',
+      content: opts.userMessage,
+      attachments: opts.userAttachments,
+    }
     const conversation: ChatMessage[] = [
       { role: 'system', content: opts.systemPrompt },
       ...opts.history,
-      { role: 'user', content: opts.userMessage },
+      userTurn,
     ]
-    const newMessages: ChatMessage[] = [{ role: 'user', content: opts.userMessage }]
+    const newMessages: ChatMessage[] = [userTurn]
     let finalAssistantText = ''
     const usage = { promptTokens: 0, completionTokens: 0 }
 

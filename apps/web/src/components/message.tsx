@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { Copy, Check, RotateCw, Pencil } from 'lucide-react'
-import type { UiMessage } from '@/stores/chat-store'
+import type { UiAttachment, UiMessage } from '@/stores/chat-store'
 import { ToolCallCard } from '@/components/tool-call-card'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { api } from '@/lib/api'
 import { cn } from '@/lib/utils'
 
 export interface MessageProps {
@@ -124,6 +125,12 @@ export function Message({
           >
             {message.tools.map(t => <ToolCallCard key={t.id} tool={t} />)}
 
+            {isUser && message.attachments && message.attachments.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {message.attachments.map(a => <AttachmentThumb key={a.key} attachment={a} />)}
+              </div>
+            )}
+
             {isUser ? (
               <div className="whitespace-pre-wrap break-words">{message.content}</div>
             ) : message.content ? (
@@ -195,6 +202,51 @@ function RegenerateButton({ onClick }: { onClick: () => void }) {
       <RotateCw className="w-3 h-3" />
       <span>Regenerate</span>
     </button>
+  )
+}
+
+/**
+ * Image attachment thumbnail. Fetches a short-lived presigned GET URL from the
+ * server on mount — keeps the S3 bucket private without exposing keys.
+ */
+function AttachmentThumb({ attachment }: { attachment: UiAttachment }) {
+  const [url, setUrl] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setUrl(null)
+    api<{ url: string }>('/uploads/view', {
+      method: 'POST',
+      body: JSON.stringify({ key: attachment.key }),
+    })
+      .then(r => {
+        if (!cancelled) setUrl(r.url)
+      })
+      .catch(() => {
+        /* fail silently — thumbnail just won't appear */
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [attachment.key])
+
+  if (attachment.kind !== 'image') return null
+
+  return (
+    <a
+      href={url ?? '#'}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="block w-32 h-32 rounded-md overflow-hidden border border-white/20 bg-black/20 hover:border-white/40 transition-colors"
+      title={attachment.originalName ?? ''}
+      onClick={e => { if (!url) e.preventDefault() }}
+    >
+      {url ? (
+        <img src={url} alt={attachment.originalName ?? ''} className="w-full h-full object-cover" />
+      ) : (
+        <div className="w-full h-full grid place-items-center text-[10px] text-white/70 font-mono">loading…</div>
+      )}
+    </a>
   )
 }
 

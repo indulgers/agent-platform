@@ -17,6 +17,14 @@ export interface UiUsage {
   costUsd: number
 }
 
+export interface UiAttachment {
+  key: string
+  kind: 'image'
+  mediaType: string
+  size: number
+  originalName?: string
+}
+
 export interface UiMessage {
   id: string
   role: 'user' | 'assistant'
@@ -24,6 +32,8 @@ export interface UiMessage {
   tools: UiToolEvent[]
   /** Only set on assistant messages once the server reported usage. */
   usage?: UiUsage
+  /** Image attachments on user messages. */
+  attachments?: UiAttachment[]
 }
 
 interface ChatState {
@@ -35,7 +45,7 @@ interface ChatState {
   setConversation: (id: string | null) => void
   reset: () => void
   loadMessages: (messages: UiMessage[]) => void
-  addUserMessage: (content: string) => void
+  addUserMessage: (content: string, attachments?: UiAttachment[]) => void
   beginAssistant: () => AbortController
   handleEvent: (event: SseEvent) => void
   stop: () => void
@@ -57,9 +67,11 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   loadMessages: messages => set({ messages, streamingAssistantId: null, isStreaming: false, abortController: null }),
 
-  addUserMessage: content => {
+  addUserMessage: (content, attachments) => {
     const id = `local-${Date.now()}-u`
-    set(s => ({ messages: [...s.messages, { id, role: 'user', content, tools: [] }] }))
+    set(s => ({
+      messages: [...s.messages, { id, role: 'user', content, tools: [], attachments }],
+    }))
   },
 
   beginAssistant: () => {
