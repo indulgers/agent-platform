@@ -12,7 +12,7 @@ function RootLayout() {
   const { theme, toggle } = useTheme()
 
   return (
-    <div className="min-h-screen flex flex-col bg-background">
+    <div className="h-screen overflow-hidden flex flex-col bg-background">
       <header className="sticky top-0 z-50 h-14 border-b border-border bg-background/80 backdrop-blur-md backdrop-saturate-150">
         <div className="h-full px-4 flex items-center justify-between gap-4">
           <Link to="/" className="flex items-center gap-2 text-[14px] font-semibold tracking-[-0.011em]">
