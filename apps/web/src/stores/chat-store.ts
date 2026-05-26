@@ -22,12 +22,16 @@ interface ChatState {
   messages: UiMessage[]
   streamingAssistantId: string | null
   isStreaming: boolean
+  abortController: AbortController | null
   setConversation: (id: string | null) => void
   reset: () => void
   loadMessages: (messages: UiMessage[]) => void
   addUserMessage: (content: string) => void
-  beginAssistant: () => void
+  beginAssistant: () => AbortController
   handleEvent: (event: SseEvent) => void
+  stop: () => void
+  /** Drop the latest assistant message locally — used by regenerate before re-streaming. */
+  dropLastAssistant: () => string | undefined
 }
 
 export const useChatStore = create<ChatState>((set, get) => ({
@@ -35,11 +39,12 @@ export const useChatStore = create<ChatState>((set, get) => ({
   messages: [],
   streamingAssistantId: null,
   isStreaming: false,
+  abortController: null,
 
   setConversation: id => set({ conversationId: id }),
-  reset: () => set({ messages: [], streamingAssistantId: null, isStreaming: false }),
+  reset: () => set({ messages: [], streamingAssistantId: null, isStreaming: false, abortController: null }),
 
-  loadMessages: messages => set({ messages, streamingAssistantId: null, isStreaming: false }),
+  loadMessages: messages => set({ messages, streamingAssistantId: null, isStreaming: false, abortController: null }),
 
   addUserMessage: content => {
     const id = `local-${Date.now()}-u`
@@ -48,11 +53,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
   beginAssistant: () => {
     const id = `local-${Date.now()}-a`
+    const controller = new AbortController()
     set(s => ({
       messages: [...s.messages, { id, role: 'assistant', content: '', tools: [] }],
       streamingAssistantId: id,
       isStreaming: true,
+      abortController: controller,
     }))
+    return controller
+  },
+
+  stop: () => {
+    const ctrl = get().abortController
+    if (ctrl) ctrl.abort()
+    set({ isStreaming: false, streamingAssistantId: null, abortController: null })
+  },
+
+  dropLastAssistant: () => {
+    const messages = get().messages
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i]?.role === 'assistant') {
+        const removed = messages[i]
+        set({ messages: messages.slice(0, i) })
+        return removed?.content
+      }
+    }
+    return undefined
   },
 
   handleEvent: event => {
@@ -93,12 +119,13 @@ export const useChatStore = create<ChatState>((set, get) => ({
         ),
       }))
     } else if (event.type === 'message_done' || event.type === 'done') {
-      set({ isStreaming: false, streamingAssistantId: null })
+      set({ isStreaming: false, streamingAssistantId: null, abortController: null })
     } else if (event.type === 'error') {
       set(s => ({
         messages: s.messages.map(m => (m.id === id ? { ...m, content: m.content + `\n\n[error] ${event.message}` } : m)),
         isStreaming: false,
         streamingAssistantId: null,
+        abortController: null,
       }))
     }
   },

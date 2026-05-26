@@ -132,3 +132,151 @@
     transition-duration: 1ms !important;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Markdown body styles — applied to the .md container produced by <Markdown>.
+ * Designed to feel like Linear / GitHub: tight vertical rhythm, hairline code
+ * blocks with a top bar carrying the language label and a Copy button.
+ * ------------------------------------------------------------------------- */
+
+.md {
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+}
+
+.md > * + * { margin-top: 12px; }
+.md h1, .md h2, .md h3 { margin-top: 20px; margin-bottom: 4px; }
+.md h1 { font-size: 20px; }
+.md h2 { font-size: 17px; }
+.md h3 { font-size: 15px; font-weight: 600; }
+.md p { color: var(--color-text-primary); }
+.md ul, .md ol { padding-left: 24px; }
+.md ul { list-style: disc; }
+.md ol { list-style: decimal; }
+.md li + li { margin-top: 4px; }
+.md a {
+  color: var(--color-accent-soft);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: color-mix(in oklab, var(--color-accent-soft) 40%, transparent);
+}
+.md a:hover { text-decoration-color: var(--color-accent-soft); }
+.md strong { font-weight: 600; color: var(--color-text-primary); }
+.md em { font-style: italic; }
+.md blockquote {
+  margin: 12px 0;
+  padding: 4px 0 4px 14px;
+  border-left: 2px solid var(--color-hairline-strong);
+  color: var(--color-text-secondary);
+  font-style: italic;
+}
+.md hr { border: 0; border-top: 1px solid var(--color-hairline); margin: 16px 0; }
+.md table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  margin: 12px 0;
+}
+.md th, .md td {
+  padding: 6px 10px;
+  border: 1px solid var(--color-hairline);
+  text-align: left;
+}
+.md th {
+  background: var(--color-surface-2);
+  font-weight: 600;
+  font-size: 12.5px;
+  letter-spacing: 0.01em;
+}
+
+/* Inline code */
+.md :not(pre) > code {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  font-size: 0.88em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--color-surface-2);
+  border: 1px solid var(--color-hairline);
+  color: var(--color-accent-soft);
+}
+
+/* Fenced code block container */
+.md .md-code {
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: var(--color-surface-2);
+  overflow: hidden;
+  margin: 12px 0;
+}
+
+.md .md-code__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px 6px 12px;
+  border-bottom: 1px solid var(--color-hairline);
+  background: color-mix(in oklab, var(--color-surface-2) 60%, var(--color-ground));
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.md .md-code__lang {
+  color: var(--color-text-muted);
+  text-transform: lowercase;
+}
+
+.md .md-code__copy {
+  font-family: inherit;
+  font-size: inherit;
+  letter-spacing: inherit;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--color-text-secondary);
+  padding: 2px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 150ms ease-out, background 150ms ease-out, border-color 150ms ease-out;
+}
+.md .md-code__copy:hover {
+  color: var(--color-text-primary);
+  background: var(--color-surface-3);
+  border-color: var(--color-hairline);
+}
+.md .md-code__copy--ok {
+  color: var(--color-success) !important;
+  border-color: color-mix(in oklab, var(--color-success) 40%, var(--color-hairline)) !important;
+}
+
+.md .md-code pre {
+  margin: 0;
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+.md .md-code pre code {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  color: var(--color-text-primary);
+}
+
+/* Light mode tweaks for code (github-dark.css is dark by default; light needs different background) */
+:root[data-theme='light'] .md .md-code {
+  background: #fafaf9;
+}
+:root[data-theme='light'] .md .md-code__bar {
+  background: #f0efed;
+}
+:root[data-theme='light'] .hljs {
+  background: transparent;
+  color: #15161a;
+}
+:root[data-theme='light'] .md :not(pre) > code {
+  background: #f0efed;
+  color: var(--color-accent);
+}

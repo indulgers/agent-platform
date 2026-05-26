@@ -4,6 +4,7 @@ import { api } from '@/lib/api'
 import { useAuthStore } from '@/stores/auth-store'
 import { useChatStore, type UiMessage } from '@/stores/chat-store'
 import { ChatStream } from '@/components/chat-stream'
+import { ConversationSidebar } from '@/components/conversation-sidebar'
 
 interface ConversationWithMessages {
   id: string
@@ -32,8 +33,6 @@ function ChatPage() {
       for (const m of convo.messages) {
         if (m.role === 'user') ui.push({ id: m.id, role: 'user', content: m.content, tools: [] })
         else if (m.role === 'assistant') ui.push({ id: m.id, role: 'assistant', content: m.content, tools: [] })
-        // tool messages are folded into the prior assistant message at render time —
-        // for the skeleton we just show them inline as plain text.
         else if (m.role === 'tool') {
           const last = ui[ui.length - 1]
           if (last && last.role === 'assistant') {
@@ -45,5 +44,10 @@ function ChatPage() {
     })
   }, [id, setConversation, loadMessages, reset])
 
-  return <ChatStream conversationId={id} />
+  return (
+    <div className="flex-1 flex min-h-0">
+      <ConversationSidebar activeId={id} />
+      <ChatStream conversationId={id} />
+    </div>
+  )
 }

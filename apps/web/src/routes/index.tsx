@@ -1,9 +1,7 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute, redirect, useNavigate } from '@tanstack/react-router'
 import { useEffect, useState } from 'react'
 import { useAuthStore } from '@/stores/auth-store'
 import { api } from '@/lib/api'
-import { Button } from '@/components/ui/button'
-import { useNavigate } from '@tanstack/react-router'
 
 interface ConversationRow {
   id: string
@@ -16,50 +14,45 @@ export const Route = createFileRoute('/')({
   beforeLoad: () => {
     if (!useAuthStore.getState().token) throw redirect({ to: '/login' })
   },
-  component: HomePage,
+  component: IndexRedirect,
 })
 
-function HomePage() {
+/**
+ * The root path is just a router — we always want the user inside a chat.
+ * Pick the most-recent conversation, or create one if the user has none.
+ */
+function IndexRedirect() {
   const navigate = useNavigate()
-  const [conversations, setConversations] = useState<ConversationRow[]>([])
-  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    api<ConversationRow[]>('/conversations')
-      .then(setConversations)
-      .finally(() => setLoading(false))
-  }, [])
-
-  const startNew = async () => {
-    const convo = await api<ConversationRow>('/conversations', { method: 'POST', body: JSON.stringify({}) })
-    navigate({ to: '/chat/$id', params: { id: convo.id } })
-  }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const list = await api<ConversationRow[]>('/conversations')
+        if (cancelled) return
+        if (list.length > 0) {
+          void navigate({ to: '/chat/$id', params: { id: list[0]!.id }, replace: true })
+          return
+        }
+        const created = await api<ConversationRow>('/conversations', {
+          method: 'POST',
+          body: JSON.stringify({}),
+        })
+        if (cancelled) return
+        void navigate({ to: '/chat/$id', params: { id: created.id }, replace: true })
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err))
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [navigate])
 
   return (
-    <div className="max-w-2xl w-full mx-auto p-6 space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-lg font-medium">Conversations</h1>
-        <Button onClick={startNew}>New chat</Button>
-      </div>
-      {loading ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : conversations.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No conversations yet. Start a new chat.</p>
-      ) : (
-        <ul className="divide-y border rounded-md">
-          {conversations.map(c => (
-            <li key={c.id} className="p-3 hover:bg-accent">
-              <button
-                className="text-left w-full text-sm"
-                onClick={() => navigate({ to: '/chat/$id', params: { id: c.id } })}
-              >
-                <div className="font-medium">{c.title}</div>
-                <div className="text-xs text-muted-foreground">{new Date(c.updatedAt).toLocaleString()}</div>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+    <div className="flex-1 flex items-center justify-center text-sm text-muted-foreground">
+      {error ? <span className="text-[color:var(--color-danger)]">{error}</span> : 'Loading…'}
     </div>
   )
 }
