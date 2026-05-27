@@ -52,7 +52,24 @@ jobs:
               git init
               git remote add origin https://github.com/indulgers/agent-platform.git
             fi
-            git fetch --depth=1 origin "$DEPLOY_REF"
+
+            # github.com from CN VPS is flaky on TLS — retry the fetch up to
+            # 5 times with a backoff before giving up. Use a longer http
+            # postBuffer and lower 'lowSpeedLimit' for tolerance.
+            git config --global http.postBuffer 524288000
+            git config --global http.lowSpeedLimit 1000
+            git config --global http.lowSpeedTime 30
+            for attempt in 1 2 3 4 5; do
+              echo ">>> git fetch attempt $attempt"
+              if git fetch --depth=1 origin "$DEPLOY_REF"; then
+                break
+              fi
+              if [ "$attempt" -eq 5 ]; then
+                echo "!!! git fetch failed after 5 attempts" >&2
+                exit 1
+              fi
+              sleep $((attempt * 5))
+            done
             git reset --hard FETCH_HEAD
             git log -1 --oneline
 
