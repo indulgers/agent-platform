@@ -18,7 +18,10 @@ export class DeepSeekProvider extends OpenAIProvider {
     if (!process.env.DEEPSEEK_API_KEY) return null
     return new OpenAI({
       apiKey: process.env.DEEPSEEK_API_KEY,
-      baseURL: process.env.DEEPSEEK_BASE_URL ?? 'https://api.deepseek.com',
+      // `||` (not `??`) so empty-string from docker-compose (`KEY=` lines)
+      // also falls back to the default. `??` would let `""` through and the
+      // OpenAI SDK would silently use it, hanging every request.
+      baseURL: process.env.DEEPSEEK_BASE_URL || 'https://api.deepseek.com',
     })
   }
 
