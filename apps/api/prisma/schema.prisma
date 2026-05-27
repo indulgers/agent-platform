@@ -1,6 +1,11 @@
 generator client {
   provider        = "prisma-client-js"
   previewFeatures = ["postgresqlExtensions"]
+  // native = whatever the build host is (e.g. macOS arm64 during dev).
+  // debian-openssl-3.0.x = node:20-slim runtime in production.
+  // Without this, prisma only ships the engine matching the build host
+  // and the api crashes on boot with 'Query Engine for runtime not found'.
+  binaryTargets   = ["native", "debian-openssl-3.0.x"]
 }
 
 datasource db {
