@@ -7,6 +7,15 @@ import { z } from 'zod'
 loadDotenv({ path: path.resolve(__dirname, '..', '..', '..', '..', '.env') })
 loadDotenv({ path: path.resolve(__dirname, '..', '..', '.env'), override: true })
 
+/**
+ * docker-compose treats a `KEY=` line in .env (empty value) as the empty
+ * string, but zod's `.optional()` only accepts `undefined`. Without this
+ * wrapper, every optional URL field rejects empty strings and we crashloop
+ * on boot. Apply to any field where "unset" should be the same as "empty".
+ */
+const emptyAsUndefined = <T extends z.ZodTypeAny>(schema: T) =>
+  z.preprocess(v => (v === '' ? undefined : v), schema)
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(3000),
@@ -17,10 +26,10 @@ const envSchema = z.object({
   JWT_SECRET: z.string().min(16, 'JWT_SECRET must be at least 16 chars'),
   JWT_EXPIRES_IN: z.string().default('15m'),
 
-  OPENAI_API_KEY: z.string().optional(),
-  ANTHROPIC_API_KEY: z.string().optional(),
-  DEEPSEEK_API_KEY: z.string().optional(),
-  DEEPSEEK_BASE_URL: z.string().url().optional(),
+  OPENAI_API_KEY: emptyAsUndefined(z.string().optional()),
+  ANTHROPIC_API_KEY: emptyAsUndefined(z.string().optional()),
+  DEEPSEEK_API_KEY: emptyAsUndefined(z.string().optional()),
+  DEEPSEEK_BASE_URL: emptyAsUndefined(z.string().url().optional()),
 
   LLM_DEFAULT_PROVIDER: z.enum(['openai', 'anthropic', 'deepseek']).default('anthropic'),
   LLM_DEFAULT_MODEL: z.string().default('claude-sonnet-4-6'),
@@ -31,11 +40,11 @@ const envSchema = z.object({
 
   // S3-compatible storage. _ENDPOINT = backend talks to MinIO; _PUBLIC_ENDPOINT
   // = the URL the browser PUTs to via presigned URL.
-  S3_ENDPOINT: z.string().url().optional(),
-  S3_PUBLIC_ENDPOINT: z.string().url().optional(),
+  S3_ENDPOINT: emptyAsUndefined(z.string().url().optional()),
+  S3_PUBLIC_ENDPOINT: emptyAsUndefined(z.string().url().optional()),
   S3_REGION: z.string().default('us-east-1'),
-  S3_ACCESS_KEY: z.string().optional(),
-  S3_SECRET_KEY: z.string().optional(),
+  S3_ACCESS_KEY: emptyAsUndefined(z.string().optional()),
+  S3_SECRET_KEY: emptyAsUndefined(z.string().optional()),
   S3_BUCKET: z.string().default('agent-platform'),
 
   AGENT_MAX_ITERATIONS: z.coerce.number().int().positive().default(8),
