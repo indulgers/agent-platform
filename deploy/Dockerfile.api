@@ -37,6 +37,13 @@ RUN pnpm --filter @agent-platform/api build
 # workspace and inlines its built dist into the output's node_modules.
 RUN pnpm --filter @agent-platform/api deploy --prod /deploy-api
 
+# pnpm deploy created a fresh node_modules; the prisma client we generated
+# earlier lived in the workspace store and is NOT in the deploy tree. Run
+# `prisma generate` again, this time targeting the deploy tree, so the
+# generated client lands inside /deploy-api/node_modules/.prisma. prisma
+# CLI is now a prod dep (see apps/api/package.json), so it's in the tree.
+RUN cd /deploy-api && node_modules/.bin/prisma generate --schema=prisma/schema.prisma
+
 # ---------- runtime ----------
 FROM node:20-slim AS runtime
 # openssl for the prisma engine; ca-certificates for any outbound HTTPS the
@@ -55,6 +62,6 @@ COPY --from=build /deploy-api ./
 
 EXPOSE 3000
 # Just boot. Schema sync (`prisma db push`) is done manually outside the
-# container — see DEPLOY.md. We don't bundle the prisma CLI in the runtime
-# image (it's a devDep, ~50MB) so the entrypoint stays small and fast.
+# container — see DEPLOY.md. The prisma CLI is in the image so the user can
+# run `docker compose exec api node_modules/.bin/prisma db push` when needed.
 CMD ["node", "dist/main.js"]
