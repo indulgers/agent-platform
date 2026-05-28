@@ -133,37 +133,56 @@ it via `environment: prod` (already set in `.github/workflows/deploy.yml`).
 ## How deploys flow
 
 1. You merge a PR to `main`.
-2. `.github/workflows/deploy.yml` triggers and SSH's into the VPS.
-3. On the VPS:
-   - `git fetch && git reset --hard origin/main`
-   - `docker compose build` — only services whose context changed actually
-     rebuild; layer cache makes unchanged services near-instant.
-   - `docker compose up -d --remove-orphans`
-   - `docker image prune -f`
-4. New containers are running on the freshly built images.
+2. `.github/workflows/deploy.yml` triggers.
+3. A `changes` job runs `dorny/paths-filter` against the diff to figure out
+   which services need rebuilding:
+   - touching `apps/api/**` → rebuild `api`
+   - touching `apps/web/**` → rebuild `web`
+   - touching `apps/landing/**` → rebuild `landing`
+   - touching `packages/shared/**` → rebuild **both** `api` and `web`
+     (they consume shared)
+   - touching `deploy/nginx/**` or `deploy/docker-compose.yml` → recreate `nginx`
+   - touching `pnpm-lock.yaml` / `package.json` → rebuild all 3 apps
+     (dep change could affect any)
+4. The `deploy` job SSH's into the VPS, runs `git fetch + reset --hard`,
+   then `docker compose build <only the changed services>`,
+   `up -d <those services>`, and bounces nginx so it re-resolves upstream
+   IPs after container replacement.
+5. If **nothing** matched (e.g. a README-only PR), the deploy job skips
+   entirely.
 
-Total wall time after first build: ~1-3 min (layer cache hits everything).
-First cold build: ~5-10 min on a 4C8G host.
+Wall time:
+- README / docs only: skipped — 30s job overhead.
+- One service changed: 1-3 min.
+- Shared package: 2-4 min (api + web both rebuild).
+- All 3 changed / cold first build: 5-10 min.
 
 ## Manual deploy / rollback
 
 **Force a redeploy** (after editing `.env`, or to retry a failed run):
 
 GitHub UI → Actions → **deploy** → Run workflow → leave inputs blank.
+Manual triggers always run (don't skip), and by default rebuild only what
+path-filter sees as changed since the previous main HEAD.
+
+**Force-rebuild specific services**: in the manual trigger, set
+`services` to `api`, `api,web`, or `all`. Use this when you've edited
+`.env` and only need to restart api, or when you want a clean rebuild of
+everything (`all`).
 
 **Deploy a different ref** (rollback to a previous commit, or a feature
-branch for staging on the same host):
+branch for staging on the same host): set `ref` to a branch name or SHA.
 
-GitHub UI → Actions → **deploy** → Run workflow → set `ref` to a branch
-name or a commit SHA.
-
-Directly on the VPS:
+Directly on the VPS (no workflow):
 
 ```bash
 cd ~/agent-platform
 git fetch origin
 git reset --hard origin/main   # or any other ref
-docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
+# rebuild only what you need:
+docker compose --env-file .env -f deploy/docker-compose.yml build api
+docker compose --env-file .env -f deploy/docker-compose.yml up -d api
+docker compose --env-file .env -f deploy/docker-compose.yml restart nginx
 ```
 
 ## Speed up `pnpm install` from CN (one-time per VPS)

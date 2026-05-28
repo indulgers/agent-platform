@@ -10,6 +10,11 @@ on:
         required: false
         default: 'main'
         type: string
+      services:
+        description: 'Comma-separated services to force-rebuild (api,web,landing,all). Empty = let path-filter decide.'
+        required: false
+        default: ''
+        type: string
 
 concurrency:
   # Never run two deploys in parallel — they'd race on the server.
@@ -17,45 +22,110 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Phase 1: detect which services' source actually changed since the last
+  # main commit. dorny/paths-filter compares the push's base..head; for
+  # workflow_dispatch it diffs against the default branch's HEAD. Outputs
+  # are consumed by the deploy job to decide what to rebuild.
+  changes:
+    name: detect changed services
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    outputs:
+      api:     ${{ steps.filter.outputs.api }}
+      web:     ${{ steps.filter.outputs.web }}
+      landing: ${{ steps.filter.outputs.landing }}
+      infra:   ${{ steps.filter.outputs.infra }}
+      shared:  ${{ steps.filter.outputs.shared }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          # `shared` changes invalidate api + web (both import from it).
+          # `infra` changes (compose/nginx/.env example) need at minimum a
+          #   compose up; we re-create nginx in that case.
+          # `pnpm-lock.yaml` or root `package.json` -> conservative full
+          #   rebuild (dep change could affect any service).
+          filters: |
+            api:
+              - 'apps/api/**'
+              - 'deploy/Dockerfile.api'
+              - 'pnpm-lock.yaml'
+              - 'package.json'
+              - 'pnpm-workspace.yaml'
+              - 'tsconfig.base.json'
+            web:
+              - 'apps/web/**'
+              - 'deploy/Dockerfile.web'
+              - 'pnpm-lock.yaml'
+              - 'package.json'
+              - 'pnpm-workspace.yaml'
+              - 'tsconfig.base.json'
+            landing:
+              - 'apps/landing/**'
+              - 'deploy/Dockerfile.landing'
+              - 'pnpm-lock.yaml'
+              - 'package.json'
+              - 'pnpm-workspace.yaml'
+              - 'tsconfig.base.json'
+            shared:
+              - 'packages/shared/**'
+            infra:
+              - 'deploy/docker-compose.yml'
+              - 'deploy/nginx/**'
+
   deploy:
     name: deploy to vps
+    needs: changes
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # SSH_HOST / SSH_USER / SSH_PRIVATE_KEY / DEPLOY_DIR live in the 'prod'
-    # GitHub Environment.
     environment: prod
+    # Skip the whole deploy if nothing relevant changed AND it wasn't a
+    # manual trigger. (workflow_dispatch always runs — useful for
+    # forced redeploys / env-only changes.)
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      needs.changes.outputs.api     == 'true' ||
+      needs.changes.outputs.web     == 'true' ||
+      needs.changes.outputs.landing == 'true' ||
+      needs.changes.outputs.shared  == 'true' ||
+      needs.changes.outputs.infra   == 'true'
 
     steps:
-      - name: SSH deploy — pull + build + up
+      - name: SSH deploy — pull + targeted build + up
         uses: appleboy/ssh-action@v1.2.0
         env:
           DEPLOY_REF: ${{ inputs.ref || 'main' }}
+          # Forward the path-filter results to the SSH session so the
+          # bash script can decide which `compose build` arguments to pass.
+          # Shared changes mean rebuild both api and web (both depend on it).
+          CHANGED_API:     ${{ needs.changes.outputs.api == 'true' || needs.changes.outputs.shared == 'true' }}
+          CHANGED_WEB:     ${{ needs.changes.outputs.web == 'true' || needs.changes.outputs.shared == 'true' }}
+          CHANGED_LANDING: ${{ needs.changes.outputs.landing == 'true' }}
+          CHANGED_INFRA:   ${{ needs.changes.outputs.infra == 'true' }}
+          # Manual override: pick services explicitly or pass "all" to force everything.
+          FORCE_SERVICES:  ${{ inputs.services }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
-          envs: DEPLOY_REF
-          # First build on a 4C8G host can take 5-10 min cold. Subsequent
-          # builds are layer-cached and finish in 1-3 min.
+          envs: DEPLOY_REF,CHANGED_API,CHANGED_WEB,CHANGED_LANDING,CHANGED_INFRA,FORCE_SERVICES
+          # First build on a 4C8G host can take 5-10 min cold. Targeted
+          # rebuilds are 30s-3min.
           command_timeout: 30m
           script: |
             set -euo pipefail
             cd "${{ secrets.DEPLOY_DIR }}"
 
             # ---- Sync source ----
-            # First run after switching from image-based to build-based: clone
-            # if the repo isn't already here. The deploy dir was originally
-            # just a flat docker-compose drop, so .git probably doesn't exist.
             if [ ! -d .git ]; then
-              echo ">>> first build — initialising git repo in place"
+              echo ">>> first deploy — initialising git repo in place"
               git init
               git remote add origin https://github.com/indulgers/agent-platform.git
             fi
 
-            # github.com from CN VPS is flaky on TLS — retry the fetch up to
-            # 5 times with a backoff before giving up. Use a longer http
-            # postBuffer and lower 'lowSpeedLimit' for tolerance.
+            # github.com from CN VPS is flaky on TLS — retry the fetch.
             git config --global http.postBuffer 524288000
             git config --global http.lowSpeedLimit 1000
             git config --global http.lowSpeedTime 30
@@ -73,14 +143,80 @@ jobs:
             git reset --hard FETCH_HEAD
             git log -1 --oneline
 
-            # ---- Build + start ----
-            # --build forces a rebuild of any service whose Dockerfile or
-            # context changed; layer cache makes unchanged stages fast.
-            docker compose --env-file .env -f deploy/docker-compose.yml build
-            docker compose --env-file .env -f deploy/docker-compose.yml up -d --remove-orphans
+            # ---- Decide which services to rebuild ----
+            # FORCE_SERVICES (manual input) overrides the path-filter result.
+            # "all" rebuilds everything. Otherwise we union path-filter + force list.
+            services=()
 
-            # Reap dangling images so the VPS disk doesn't bloat.
+            if [ "$FORCE_SERVICES" = "all" ]; then
+              echo ">>> manual: forcing rebuild of all services"
+              services=(api web landing)
+            else
+              # Path-filter signal
+              [ "$CHANGED_API"     = "true" ] && services+=(api)
+              [ "$CHANGED_WEB"     = "true" ] && services+=(web)
+              [ "$CHANGED_LANDING" = "true" ] && services+=(landing)
+
+              # Manual override list (comma-separated): add to the set
+              if [ -n "$FORCE_SERVICES" ] && [ "$FORCE_SERVICES" != "all" ]; then
+                IFS=',' read -ra forced <<< "$FORCE_SERVICES"
+                for s in "${forced[@]}"; do
+                  s="${s// /}"   # strip whitespace
+                  case "$s" in
+                    api|web|landing)
+                      # Add only if not already there.
+                      if [[ ! " ${services[*]} " =~ " $s " ]]; then
+                        services+=("$s")
+                      fi
+                      ;;
+                    '') ;;
+                    *) echo ">>> ignoring unknown service: $s" ;;
+                  esac
+                done
+              fi
+            fi
+
+            echo "=============================="
+            echo "Build plan:"
+            echo "  CHANGED_API     = $CHANGED_API"
+            echo "  CHANGED_WEB     = $CHANGED_WEB"
+            echo "  CHANGED_LANDING = $CHANGED_LANDING"
+            echo "  CHANGED_INFRA   = $CHANGED_INFRA"
+            echo "  FORCE_SERVICES  = '$FORCE_SERVICES'"
+            echo "  → services to rebuild: ${services[*]:-(none)}"
+            echo "=============================="
+
+            # ---- Build + start ----
+            COMPOSE="docker compose --env-file .env -f deploy/docker-compose.yml"
+
+            if [ ${#services[@]} -gt 0 ]; then
+              # Build only the targeted services, then start/replace them.
+              # Layer cache lets unchanged ones reuse most of their stages.
+              $COMPOSE build "${services[@]}"
+              $COMPOSE up -d --remove-orphans "${services[@]}"
+            else
+              echo ">>> no service rebuild required"
+            fi
+
+            # ---- Infra changes (compose / nginx config) ----
+            # We mounted nginx config via bind-mount, so changes to
+            # deploy/nginx/default.conf take effect after a container
+            # recreate. Also covers compose-level changes (ports,
+            # depends_on, etc.) that aren't tied to a service image.
+            if [ "$CHANGED_INFRA" = "true" ]; then
+              echo ">>> infra changed — recreating nginx"
+              $COMPOSE up -d --force-recreate nginx
+            fi
+
+            # If we touched ANY services, also bounce nginx so it
+            # re-resolves upstream IPs after container recreation.
+            if [ ${#services[@]} -gt 0 ] && [ "$CHANGED_INFRA" != "true" ]; then
+              echo ">>> bouncing nginx to refresh upstream DNS"
+              $COMPOSE restart nginx
+            fi
+
+            # Reap dangling images so disk doesn't bloat.
             docker image prune -f
 
             echo "--- running containers ---"
-            docker compose --env-file .env -f deploy/docker-compose.yml ps
+            $COMPOSE ps
