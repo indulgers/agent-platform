@@ -26,14 +26,16 @@ server {
   root /usr/share/nginx/html;
   index index.html;
 
-  # Long-cache hashed assets; revalidate the HTML
+  # Hashed bundles — Vite filenames carry a content hash, so URL changes
+  # invalidate the cache for us. Lock for a year.
   location ~* \.(?:css|js|woff2?|ttf|svg|png|jpg|jpeg|webp|avif)$ {
-    expires 30d;
-    add_header Cache-Control "public, max-age=2592000, immutable";
+    add_header Cache-Control "public, max-age=31536000, immutable";
   }
 
+  # HTML: never cache. Cloudflare (or any future CDN) honours this and only
+  # caches the hashed assets.
   location / {
-    add_header Cache-Control "public, max-age=300, must-revalidate";
+    add_header Cache-Control "no-cache, no-store, must-revalidate";
     try_files $uri $uri.html $uri/ /index.html;
   }
 }
