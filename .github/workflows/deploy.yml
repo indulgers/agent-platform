@@ -25,7 +25,7 @@ jobs:
   # Phase 1: detect which services' source actually changed since the last
   # main commit. dorny/paths-filter compares the push's base..head; for
   # workflow_dispatch it diffs against the default branch's HEAD. Outputs
-  # are consumed by the deploy job to decide what to rebuild.
+  # are consumed by the build-static + deploy jobs to decide what to rebuild.
   changes:
     name: detect changed services
     runs-on: ubuntu-latest
@@ -35,20 +35,22 @@ jobs:
       web:     ${{ steps.filter.outputs.web }}
       landing: ${{ steps.filter.outputs.landing }}
       infra:   ${{ steps.filter.outputs.infra }}
-      shared:  ${{ steps.filter.outputs.shared }}
     steps:
       - uses: actions/checkout@v4
       - uses: dorny/paths-filter@v3
         id: filter
         with:
-          # `shared` changes invalidate api + web (both import from it).
-          # `infra` changes (compose/nginx/.env example) need at minimum a
-          #   compose up; we re-create nginx in that case.
-          # `pnpm-lock.yaml` or root `package.json` -> conservative full
-          #   rebuild (dep change could affect any service).
+          # `packages/shared/**` is folded into both `api` and `web` here
+          # (those are the only consumers) so the deploy script doesn't
+          # need a separate "shared" signal anymore.
+          # `infra` changes (compose/nginx) recreate nginx, which is also
+          # what static-only deploys do — so they're effectively a superset.
+          # Root config (`pnpm-lock.yaml`, `package.json`, etc.) goes in
+          # every per-app filter: a dep change could affect any service.
           filters: |
             api:
               - 'apps/api/**'
+              - 'packages/shared/**'
               - 'deploy/Dockerfile.api'
               - 'pnpm-lock.yaml'
               - 'package.json'
@@ -56,63 +58,186 @@ jobs:
               - 'tsconfig.base.json'
             web:
               - 'apps/web/**'
-              - 'deploy/Dockerfile.web'
+              - 'packages/shared/**'
               - 'pnpm-lock.yaml'
               - 'package.json'
               - 'pnpm-workspace.yaml'
               - 'tsconfig.base.json'
             landing:
               - 'apps/landing/**'
-              - 'deploy/Dockerfile.landing'
               - 'pnpm-lock.yaml'
               - 'package.json'
               - 'pnpm-workspace.yaml'
               - 'tsconfig.base.json'
-            shared:
-              - 'packages/shared/**'
             infra:
               - 'deploy/docker-compose.yml'
               - 'deploy/nginx/**'
 
+  # Phase 2 (parallel with deploy preparation): build the static frontends on
+  # the GH runner whenever web or landing changed. The VPS never sees node /
+  # pnpm anymore — only the rendered dist/ tarballs land there.
+  build-static:
+    name: build static frontends
+    needs: changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # Manual: respect `services` input (build whatever is forced). Auto: respect path filter.
+    if: |
+      needs.changes.outputs.web == 'true' ||
+      needs.changes.outputs.landing == 'true' ||
+      contains(inputs.services, 'web') ||
+      contains(inputs.services, 'landing') ||
+      inputs.services == 'all'
+    outputs:
+      # Echo gates downstream so the deploy job knows which artifacts exist.
+      web_built:     ${{ steps.gate.outputs.web }}
+      landing_built: ${{ steps.gate.outputs.landing }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute which static apps to build
+        id: gate
+        shell: bash
+        env:
+          CH_WEB:     ${{ needs.changes.outputs.web }}
+          CH_LANDING: ${{ needs.changes.outputs.landing }}
+          FORCE:      ${{ inputs.services }}
+        run: |
+          set -e
+          web=false
+          landing=false
+          [ "$CH_WEB" = "true" ] && web=true
+          [ "$CH_LANDING" = "true" ] && landing=true
+          # `services` input — independent checks so all combinations work
+          # (`all`, `web,landing`, `web`, etc.)
+          [[ ",$FORCE," == *,all,* ]] && { web=true; landing=true; }
+          [[ ",$FORCE," == *,web,* ]] && web=true
+          [[ ",$FORCE," == *,landing,* ]] && landing=true
+          echo "web=$web" >> "$GITHUB_OUTPUT"
+          echo "landing=$landing" >> "$GITHUB_OUTPUT"
+          echo "→ web=$web landing=$landing"
+
+      - uses: pnpm/action-setup@v3
+        with:
+          version: 9.11.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # `web` imports @agent-platform/shared at build time, so compile shared
+      # first whenever we build web.
+      - name: Build shared (needed by web)
+        if: steps.gate.outputs.web == 'true'
+        run: pnpm --filter @agent-platform/shared build
+
+      - name: Build web
+        if: steps.gate.outputs.web == 'true'
+        run: pnpm --filter @agent-platform/web build
+
+      - name: Build landing
+        if: steps.gate.outputs.landing == 'true'
+        run: pnpm --filter @agent-platform/landing build
+
+      # Tarball + upload. We tar the *contents* of dist (not the dir itself)
+      # so the deploy script can `tar xzf` into a staging dir of its choice.
+      - name: Tar web dist
+        if: steps.gate.outputs.web == 'true'
+        run: tar -czf web-dist.tar.gz -C apps/web/dist .
+
+      - name: Tar landing dist
+        if: steps.gate.outputs.landing == 'true'
+        run: tar -czf landing-dist.tar.gz -C apps/landing/dist .
+
+      - name: Upload web artifact
+        if: steps.gate.outputs.web == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: web-dist.tar.gz
+          retention-days: 7
+
+      - name: Upload landing artifact
+        if: steps.gate.outputs.landing == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: landing-dist
+          path: landing-dist.tar.gz
+          retention-days: 7
+
   deploy:
     name: deploy to vps
-    needs: changes
+    needs: [changes, build-static]
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: prod
     # Skip the whole deploy if nothing relevant changed AND it wasn't a
     # manual trigger. (workflow_dispatch always runs — useful for
     # forced redeploys / env-only changes.)
+    # NOTE: `needs.build-static` is implicit; `always()` lets us proceed even
+    # if build-static was skipped (api-only changes), but fail if build-static
+    # itself errored.
     if: |
-      github.event_name == 'workflow_dispatch' ||
-      needs.changes.outputs.api     == 'true' ||
-      needs.changes.outputs.web     == 'true' ||
-      needs.changes.outputs.landing == 'true' ||
-      needs.changes.outputs.shared  == 'true' ||
-      needs.changes.outputs.infra   == 'true'
+      always() &&
+      (needs.build-static.result == 'success' || needs.build-static.result == 'skipped') &&
+      (
+        github.event_name == 'workflow_dispatch' ||
+        needs.changes.outputs.api     == 'true' ||
+        needs.changes.outputs.web     == 'true' ||
+        needs.changes.outputs.landing == 'true' ||
+        needs.changes.outputs.infra   == 'true'
+      )
 
     steps:
-      - name: SSH deploy — pull + targeted build + up
+      - name: Download web artifact
+        if: needs.build-static.outputs.web_built == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: artifacts/
+
+      - name: Download landing artifact
+        if: needs.build-static.outputs.landing_built == 'true'
+        uses: actions/download-artifact@v4
+        with:
+          name: landing-dist
+          path: artifacts/
+
+      # Push the tarballs to the VPS in one shot (separate scp-action call so
+      # missing artifacts don't break the SSH script later — the deploy
+      # script's conditional unpack is gated on file presence).
+      - name: scp static tarballs to VPS
+        if: needs.build-static.outputs.web_built == 'true' || needs.build-static.outputs.landing_built == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host:     ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key:      ${{ secrets.SSH_PRIVATE_KEY }}
+          port:     ${{ secrets.SSH_PORT || 22 }}
+          source:   'artifacts/*'
+          target:   '/tmp/agent-platform-static/'
+          strip_components: 1
+          overwrite: true
+
+      - name: SSH deploy — pull + targeted build + up + unpack static
         uses: appleboy/ssh-action@v1.2.0
         env:
           DEPLOY_REF: ${{ inputs.ref || 'main' }}
-          # Forward the path-filter results to the SSH session so the
-          # bash script can decide which `compose build` arguments to pass.
-          # Shared changes mean rebuild both api and web (both depend on it).
-          CHANGED_API:     ${{ needs.changes.outputs.api == 'true' || needs.changes.outputs.shared == 'true' }}
-          CHANGED_WEB:     ${{ needs.changes.outputs.web == 'true' || needs.changes.outputs.shared == 'true' }}
-          CHANGED_LANDING: ${{ needs.changes.outputs.landing == 'true' }}
+          # Forward path-filter + build-static outputs into the SSH session.
+          CHANGED_API:     ${{ needs.changes.outputs.api == 'true' }}
           CHANGED_INFRA:   ${{ needs.changes.outputs.infra == 'true' }}
-          # Manual override: pick services explicitly or pass "all" to force everything.
+          WEB_BUILT:       ${{ needs.build-static.outputs.web_built == 'true' }}
+          LANDING_BUILT:   ${{ needs.build-static.outputs.landing_built == 'true' }}
           FORCE_SERVICES:  ${{ inputs.services }}
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           port: ${{ secrets.SSH_PORT || 22 }}
-          envs: DEPLOY_REF,CHANGED_API,CHANGED_WEB,CHANGED_LANDING,CHANGED_INFRA,FORCE_SERVICES
-          # First build on a 4C8G host can take 5-10 min cold. Targeted
-          # rebuilds are 30s-3min.
+          envs: DEPLOY_REF,CHANGED_API,CHANGED_INFRA,WEB_BUILT,LANDING_BUILT,FORCE_SERVICES
           command_timeout: 30m
           script: |
             set -euo pipefail
@@ -143,75 +268,88 @@ jobs:
             git reset --hard FETCH_HEAD
             git log -1 --oneline
 
-            # ---- Decide which services to rebuild ----
-            # FORCE_SERVICES (manual input) overrides the path-filter result.
-            # "all" rebuilds everything. Otherwise we union path-filter + force list.
-            services=()
+            # ---- Unpack static frontends (before nginx recreate) ----
+            # Each tarball was uploaded by the scp-action step into
+            # /tmp/agent-platform-static/. We unpack into a /tmp staging
+            # dir, then rsync --delete-after into the live /srv/*-dist
+            # — file-level atomic, with deletes deferred until after all
+            # writes complete so nothing referenced by the new index.html
+            # is missing during the swap window.
+            #
+            # The live /srv dirs are bind-mounted into the nginx container
+            # (compose.yml). Bootstrap them once on a fresh VPS:
+            #   sudo mkdir -p /srv/web-dist /srv/landing-dist
+            #   sudo chown deploy:deploy /srv/web-dist /srv/landing-dist
+            # The script will exit with a clear error if these don't exist.
+            STATIC_TMP=/tmp/agent-platform-static
 
-            if [ "$FORCE_SERVICES" = "all" ]; then
-              echo ">>> manual: forcing rebuild of all services"
-              services=(api web landing)
-            else
-              # Path-filter signal
-              [ "$CHANGED_API"     = "true" ] && services+=(api)
-              [ "$CHANGED_WEB"     = "true" ] && services+=(web)
-              [ "$CHANGED_LANDING" = "true" ] && services+=(landing)
-
-              # Manual override list (comma-separated): add to the set
-              if [ -n "$FORCE_SERVICES" ] && [ "$FORCE_SERVICES" != "all" ]; then
-                IFS=',' read -ra forced <<< "$FORCE_SERVICES"
-                for s in "${forced[@]}"; do
-                  s="${s// /}"   # strip whitespace
-                  case "$s" in
-                    api|web|landing)
-                      # Add only if not already there.
-                      if [[ ! " ${services[*]} " =~ " $s " ]]; then
-                        services+=("$s")
-                      fi
-                      ;;
-                    '') ;;
-                    *) echo ">>> ignoring unknown service: $s" ;;
-                  esac
-                done
+            unpack_dist() {
+              local name="$1"   # 'web' or 'landing'
+              local tarball="$STATIC_TMP/${name}-dist.tar.gz"
+              local staging="/tmp/agent-platform-${name}-staging"
+              local live="/srv/${name}-dist"
+              if [ ! -f "$tarball" ]; then
+                echo ">>> no $name tarball — skip"
+                return
               fi
+              if [ ! -d "$live" ] || [ ! -w "$live" ]; then
+                echo "!!! $live missing or not writable by $(whoami)" >&2
+                echo "!!! Bootstrap once: sudo mkdir -p $live && sudo chown $(whoami):$(whoami) $live" >&2
+                exit 1
+              fi
+              echo ">>> unpacking $name → $live"
+              rm -rf "$staging"
+              mkdir -p "$staging"
+              tar -xzf "$tarball" -C "$staging"
+              rsync -a --delete-after "$staging/" "$live/"
+              rm -rf "$staging" "$tarball"
+            }
+
+            if [ "$WEB_BUILT" = "true" ]; then unpack_dist web; fi
+            if [ "$LANDING_BUILT" = "true" ]; then unpack_dist landing; fi
+
+            # ---- Decide which docker services to (re)build ----
+            # Only api is built in docker now. web/landing are static.
+            services=()
+            if [ "$FORCE_SERVICES" = "all" ] || [ "$CHANGED_API" = "true" ]; then
+              services+=(api)
+            else
+              IFS=',' read -ra forced <<< "$FORCE_SERVICES"
+              for s in "${forced[@]}"; do
+                s="${s// /}"
+                if [ "$s" = "api" ]; then services+=(api); fi
+              done
             fi
 
             echo "=============================="
             echo "Build plan:"
             echo "  CHANGED_API     = $CHANGED_API"
-            echo "  CHANGED_WEB     = $CHANGED_WEB"
-            echo "  CHANGED_LANDING = $CHANGED_LANDING"
             echo "  CHANGED_INFRA   = $CHANGED_INFRA"
+            echo "  WEB_BUILT       = $WEB_BUILT"
+            echo "  LANDING_BUILT   = $LANDING_BUILT"
             echo "  FORCE_SERVICES  = '$FORCE_SERVICES'"
-            echo "  → services to rebuild: ${services[*]:-(none)}"
+            echo "  → docker services to rebuild: ${services[*]:-(none)}"
             echo "=============================="
 
             # ---- Build + start ----
             COMPOSE="docker compose --env-file .env -f deploy/docker-compose.yml"
 
             if [ ${#services[@]} -gt 0 ]; then
-              # Build only the targeted services, then start/replace them.
-              # Layer cache lets unchanged ones reuse most of their stages.
               $COMPOSE build "${services[@]}"
+              # --remove-orphans cleans up the (now-deleted) web/landing
+              # containers from previous deploys.
               $COMPOSE up -d --remove-orphans "${services[@]}"
-            else
-              echo ">>> no service rebuild required"
             fi
 
-            # ---- Infra changes (compose / nginx config) ----
-            # We mounted nginx config via bind-mount, so changes to
-            # deploy/nginx/default.conf take effect after a container
-            # recreate. Also covers compose-level changes (ports,
-            # depends_on, etc.) that aren't tied to a service image.
+            # ---- nginx ----
+            # If compose / nginx config changed, force-recreate nginx so the
+            # new bind mounts + new server config take effect. Otherwise just
+            # bounce it to pick up fresh dist/ files + re-resolve upstream DNS.
             if [ "$CHANGED_INFRA" = "true" ]; then
               echo ">>> infra changed — recreating nginx"
-              $COMPOSE up -d --force-recreate nginx
-            fi
-
-            # If we touched ANY services, also bounce nginx so it
-            # re-resolves upstream IPs after container recreation.
-            if [ ${#services[@]} -gt 0 ] && [ "$CHANGED_INFRA" != "true" ]; then
-              echo ">>> bouncing nginx to refresh upstream DNS"
+              $COMPOSE up -d --force-recreate --remove-orphans nginx
+            elif [ ${#services[@]} -gt 0 ] || [ "$WEB_BUILT" = "true" ] || [ "$LANDING_BUILT" = "true" ]; then
+              echo ">>> bouncing nginx (fresh dist or upstream change)"
               $COMPOSE restart nginx
             fi
 

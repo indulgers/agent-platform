@@ -1,10 +1,19 @@
 # Deploy guide
 
 Production target: a single 腾讯云 4C8G VPS (Ubuntu 22.04 or similar).
-Everything lives in Docker Compose. CI is a thin shim: it SSH's into the VPS
-and runs `git pull && docker compose build && up -d`. Building on the server
-side-steps the cross-pacific image-transfer bottleneck (GHCR is fronted by
-GitHub's CDN in US/EU — slow from CN).
+
+Hybrid build model:
+- **api** is built in docker, on the VPS, by the SSH deploy script. (GHCR
+  pulls from CN are too slow, so building locally is the lesser evil.)
+- **web** and **landing** are static — built on the GH runner, tar'd, and
+  scp'd to the VPS. nginx serves them directly from bind-mounted host dirs
+  (`/srv/web-dist`, `/srv/landing-dist`). No inner web/landing containers
+  anymore.
+
+This split exists because (a) building a Vite SPA on the runner is faster
+and cheaper than rebuilding a docker image of nginx-serving-static every
+push, and (b) it positions us one CI step away from R2/CDN — just swap the
+final scp for an `aws s3 sync` against R2 when we want that.
 
 ## One-time VPS bootstrap
 
@@ -60,6 +69,18 @@ sudo -iu deploy
 cd ~
 git clone https://github.com/indulgers/agent-platform.git
 cd agent-platform
+```
+
+### 4b. Create the static-frontend bind-mount directories
+
+nginx serves `web` and `landing` directly out of `/srv/web-dist` and
+`/srv/landing-dist` (bind-mounted from the host into the nginx container).
+The deploy script populates them, but they must exist before the first
+nginx start. On the host as root:
+
+```bash
+sudo mkdir -p /srv/web-dist /srv/landing-dist
+sudo chown deploy:deploy /srv/web-dist /srv/landing-dist
 ```
 
 ### 5. Create the production `.env`
@@ -134,28 +155,35 @@ it via `environment: prod` (already set in `.github/workflows/deploy.yml`).
 
 1. You merge a PR to `main`.
 2. `.github/workflows/deploy.yml` triggers.
-3. A `changes` job runs `dorny/paths-filter` against the diff to figure out
-   which services need rebuilding:
-   - touching `apps/api/**` → rebuild `api`
-   - touching `apps/web/**` → rebuild `web`
-   - touching `apps/landing/**` → rebuild `landing`
-   - touching `packages/shared/**` → rebuild **both** `api` and `web`
-     (they consume shared)
-   - touching `deploy/nginx/**` or `deploy/docker-compose.yml` → recreate `nginx`
-   - touching `pnpm-lock.yaml` / `package.json` → rebuild all 3 apps
-     (dep change could affect any)
-4. The `deploy` job SSH's into the VPS, runs `git fetch + reset --hard`,
-   then `docker compose build <only the changed services>`,
-   `up -d <those services>`, and bounces nginx so it re-resolves upstream
-   IPs after container replacement.
-5. If **nothing** matched (e.g. a README-only PR), the deploy job skips
-   entirely.
+3. The `changes` job runs `dorny/paths-filter` and emits four signals:
+   - `api`: touched `apps/api/**`, `packages/shared/**`, `deploy/Dockerfile.api`,
+     or any root config (`pnpm-lock.yaml`, `package.json`, etc.)
+   - `web`: touched `apps/web/**`, `packages/shared/**`, or root config
+   - `landing`: touched `apps/landing/**` or root config
+   - `infra`: touched `deploy/docker-compose.yml` or `deploy/nginx/**`
+4. The `build-static` job runs whenever `web` or `landing` changed. It
+   builds the dist on the GH runner (with pnpm + cached deps), tars each,
+   and uploads as workflow artifacts.
+5. The `deploy` job:
+   - Downloads any artifacts produced by `build-static`.
+   - scp's tarballs to the VPS under `/tmp/agent-platform-static/`.
+   - SSH-pulls the latest `main` and unpacks tarballs via
+     `rsync --delete-after` into `/srv/web-dist` / `/srv/landing-dist` —
+     the live dirs nginx serves from.
+   - If `api` changed: `docker compose build api && up -d api`.
+   - If `infra` changed: `docker compose up -d --force-recreate nginx`.
+     Otherwise if any service was updated: `docker compose restart nginx`
+     (refresh upstream DNS + re-stat dist files).
+6. README-only / docs-only / workflow-only PRs short-circuit: no
+   `build-static`, no `deploy`.
 
-Wall time:
-- README / docs only: skipped — 30s job overhead.
-- One service changed: 1-3 min.
-- Shared package: 2-4 min (api + web both rebuild).
-- All 3 changed / cold first build: 5-10 min.
+Wall time (typical, after layer cache + pnpm cache warm):
+- README only: skipped — 30s job overhead.
+- api only: 2-4 min (mostly docker rebuild on VPS).
+- web only: 1-2 min (build on runner ~1 min, scp + unpack ~10s).
+- landing only: 30-60s (smaller bundle).
+- All three: 4-6 min (build-static parallel with the deploy job's git
+  fetch + api docker build).
 
 ## Manual deploy / rollback
 
@@ -179,17 +207,30 @@ Directly on the VPS (no workflow):
 cd ~/agent-platform
 git fetch origin
 git reset --hard origin/main   # or any other ref
-# rebuild only what you need:
+# api docker build:
 docker compose --env-file .env -f deploy/docker-compose.yml build api
 docker compose --env-file .env -f deploy/docker-compose.yml up -d api
+# nginx (picks up new dist + re-resolves api):
 docker compose --env-file .env -f deploy/docker-compose.yml restart nginx
+```
+
+For web / landing on the VPS, you'd need pnpm + node 20 installed locally
+(the deploy normally builds them on the GH runner instead). One-shot manual
+build, if you really need to:
+
+```bash
+corepack enable pnpm
+pnpm install --frozen-lockfile
+pnpm --filter @agent-platform/shared build
+pnpm --filter @agent-platform/web build && rsync -a --delete-after apps/web/dist/ /srv/web-dist/
+pnpm --filter @agent-platform/landing build && rsync -a --delete-after apps/landing/dist/ /srv/landing-dist/
 ```
 
 ## Speed up `pnpm install` from CN (one-time per VPS)
 
-Dockerfiles default `NPM_REGISTRY=https://registry.npmmirror.com` so the
-`pnpm install` step in each image runs against a CN-side mirror — cuts
-`pnpm install` from ~5min to ~30s on a fresh build.
+`deploy/Dockerfile.api` defaults `NPM_REGISTRY=https://registry.npmmirror.com`
+so the api docker build's `pnpm install` runs against a CN-side mirror — cuts
+~5min to ~30s on a fresh build.
 
 Override at build time if you're building elsewhere:
 
@@ -197,38 +238,31 @@ Override at build time if you're building elsewhere:
 docker compose build --build-arg NPM_REGISTRY=https://registry.npmjs.org api
 ```
 
+(The static `build-static` job in CI runs on a GH-hosted ubuntu runner and
+uses the default npm registry directly — the registry mirror only matters
+for the VPS-side api build.)
+
 ## Adding HTTPS (later, once a domain is wired up)
 
-Cheapest path is to swap nginx for Caddy — it auto-provisions Let's Encrypt
-certs and renews them. The drop-in replacement looks like:
+You have a Cloudflare-registered domain — the **fast path is to put it in
+front of nginx** rather than swap nginx for Caddy:
 
-1. Point an A record at the VPS, e.g. `agent.example.com → 1.2.3.4`
-2. In `deploy/docker-compose.yml`, replace the `nginx` service with:
+1. Cloudflare DNS: `A` record `your-domain.com → VPS IP`, orange-cloud on.
+2. Install certbot on the VPS and grab a Let's Encrypt cert, then have
+   nginx listen on 443. Or, if you prefer zero VPS changes: Cloudflare
+   SSL/TLS mode `Flexible` (Cloudflare→VPS over HTTP, browser→Cloudflare
+   over HTTPS). Flexible is "good enough for staging" but logs sessions in
+   the clear between Cloudflare and the VPS — switch to `Full (strict)` +
+   Let's Encrypt for real production.
+3. Cloudflare Cache Rules:
+   - `path matches "^/(app/)?assets/"` → Eligible for cache, edge TTL 1 year.
+   - `path matches "^/api/"` → Bypass cache.
+4. Update `.env`: `WEB_ORIGIN=https://your-domain.com`.
+5. Lock down the VPS firewall (腾讯云安全组) to only allow Cloudflare IP
+   ranges on 80/443 — see https://www.cloudflare.com/ips/.
 
-   ```yaml
-   caddy:
-     image: caddy:2.8
-     restart: unless-stopped
-     depends_on: [api, web, landing]
-     ports: ['80:80', '443:443']
-     volumes:
-       - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
-       - caddydata:/data
-       - caddyconfig:/config
-   ```
-
-3. Create `deploy/caddy/Caddyfile`:
-
-   ```
-   agent.example.com {
-     handle /api/* { reverse_proxy api:3000 }
-     handle /app/* { reverse_proxy web:80 }
-     handle      { reverse_proxy landing:80 }
-   }
-   ```
-
-4. Update `.env`: `WEB_ORIGIN=https://agent.example.com`, `S3_PUBLIC_ENDPOINT=https://your-host:9100` (or proxy MinIO behind Caddy too).
-5. Re-deploy. First boot signs the cert.
+This is Tier 3-a in the deployment plan; details in the plan file under
+`~/.claude/plans/`.
 
 ## Troubleshooting
 
@@ -246,6 +280,17 @@ build-arg is in effect; check `docker compose build api 2>&1 | grep registry`.
 **`git fetch` fails with auth error** — the repo is public so this shouldn't
 happen. If it does, change the remote URL to use a deploy token or switch
 to SSH: `git remote set-url origin git@github.com:indulgers/agent-platform.git`.
+
+**`git fetch` from VPS times out / 1000 bytes/sec** — github.com from CN
+VPS is intermittently unreachable; the deploy script retries 5× with
+exponential backoff. If it still fails, re-trigger the workflow manually
+(usually clears within minutes) or `gh workflow run deploy.yml -f services=...`
+to retry.
+
+**Static frontend 404 after first deploy** — `/srv/web-dist` or
+`/srv/landing-dist` doesn't exist on the host. SSH in and run
+`sudo mkdir -p /srv/{web,landing}-dist && sudo chown deploy:deploy /srv/{web,landing}-dist`,
+then re-trigger the workflow with `services="web,landing"`.
 
 **Browser can't reach MinIO at :9100** — firewall. Open the port:
 
