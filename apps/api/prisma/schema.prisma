@@ -21,6 +21,7 @@ model User {
   createdAt     DateTime       @default(now())
   conversations Conversation[]
   tasks         Task[]
+  runs          Run[]
 }
 
 model Conversation {
@@ -34,6 +35,7 @@ model Conversation {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   messages  Message[]
+  runs      Run[]
 
   @@index([userId, updatedAt])
 }
@@ -82,4 +84,68 @@ model Task {
   updatedAt DateTime @updatedAt
 
   @@index([userId, status])
+}
+
+/// Lifecycle of a durable Run — see docs/agents domain glossary.
+enum RunStatus {
+  planning
+  awaiting_approval
+  running
+  paused
+  done
+  failed
+}
+
+/// A durable, resumable execution of an agent toward a Goal. References a
+/// Conversation for its transcript so existing Message storage is reused.
+model Run {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  /// The objective the user gave the agent.
+  goal           String
+  status         RunStatus    @default(planning)
+  /// Final result payload once the Run is done.
+  result         Json?
+  error          String?
+  /// Accumulated token usage/cost. Shape: { promptTokens, completionTokens, costUsd }
+  usage          Json?
+  plan           Plan?
+  steps          RunStep[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([userId, updatedAt])
+  @@index([conversationId])
+}
+
+/// The agent's proposed ordered steps for a Run; approved/edited by the user
+/// before autonomous execution. One per Run.
+model Plan {
+  id         String    @id @default(cuid())
+  runId      String    @unique
+  run        Run       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  /// Ordered array of plan steps: [{ index, description }]
+  steps      Json
+  approvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+/// One persisted unit of a Run's execution (a reasoning/act/tool cycle), so a
+/// Run can resume by replaying its step log.
+model RunStep {
+  id        String   @id @default(cuid())
+  runId     String
+  run       Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  seq       Int
+  /// e.g. 'plan' | 'act' | 'reflect' | 'tool_result' | 'checkpoint'
+  kind      String
+  data      Json
+  createdAt DateTime @default(now())
+
+  @@unique([runId, seq])
+  @@index([runId])
 }
