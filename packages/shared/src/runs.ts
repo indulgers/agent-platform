@@ -57,3 +57,9 @@ export const createRunInputSchema = z.object({
   conversationId: z.string().optional(),
 })
 export type CreateRunInput = z.infer<typeof createRunInputSchema>
+
+/** Payload to approve (and optionally edit) a proposed plan, starting execution. */
+export const approvePlanInputSchema = z.object({
+  steps: z.array(planStepSchema).optional(),
+})
+export type ApprovePlanInput = z.infer<typeof approvePlanInputSchema>

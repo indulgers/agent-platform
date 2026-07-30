@@ -71,6 +71,40 @@ describeDb('RunEngine (integration — real Postgres)', () => {
     expect(messages.some(m => m.role === 'assistant' && m.content === 'the answer')).toBe(true)
   })
 
+  it('proposes a plan and pauses in awaiting_approval', async () => {
+    const run = await newRun('research then write')
+    const runner = new AgentRunner(makeToolRegistryWith())
+    const resolver = fakeResolver([{ text: '1. Research\n2. Write it up', finishReason: 'stop' }])
+    const engine = new RunEngine(prisma, runner, resolver)
+
+    const emitted: SseEvent[] = []
+    await engine.plan(run.id, e => emitted.push(e))
+
+    const saved = await prisma.run.findUniqueOrThrow({ where: { id: run.id }, include: { plan: true } })
+    expect(saved.status).toBe('awaiting_approval')
+    expect((saved.plan?.steps as { description: string }[]).map(s => s.description)).toEqual([
+      'Research',
+      'Write it up',
+    ])
+    expect(emitted.some(e => e.type === 'plan_proposed')).toBe(true)
+  })
+
+  it('executes an approved plan to completion', async () => {
+    const run = await newRun('do the approved work')
+    await prisma.plan.create({
+      data: { runId: run.id, steps: [{ index: 0, description: 'step one' }], approvedAt: new Date() },
+    })
+    const runner = new AgentRunner(makeToolRegistryWith())
+    const resolver = fakeResolver([{ text: 'plan executed', finishReason: 'stop' }])
+    const engine = new RunEngine(prisma, runner, resolver)
+
+    await engine.execute(run.id)
+
+    const saved = await prisma.run.findUniqueOrThrow({ where: { id: run.id } })
+    expect(saved.status).toBe('done')
+    expect((saved.result as { answer: string }).answer).toBe('plan executed')
+  })
+
   it('marks a Run failed when execution throws', async () => {
     const run = await newRun('this will fail')
     const runner = new AgentRunner(makeToolRegistryWith())

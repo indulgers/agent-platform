@@ -17,7 +17,11 @@ export class RunProcessor extends WorkerHost {
   }
 
   async process(job: Job<RunJobPayload>): Promise<void> {
-    this.logger.log(`Executing run ${job.data.runId}`)
-    await this.engine.execute(job.data.runId)
+    this.logger.log(`Run ${job.data.runId}: ${job.name}`)
+    if (job.name === 'plan') {
+      await this.engine.plan(job.data.runId)
+    } else {
+      await this.engine.execute(job.data.runId)
+    }
   }
 }

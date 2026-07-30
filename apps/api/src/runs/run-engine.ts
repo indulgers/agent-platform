@@ -3,12 +3,14 @@ import { Prisma } from '@prisma/client'
 import type { SseEvent } from '@agent-platform/shared'
 import { PrismaService } from '../prisma/prisma.service'
 import { AgentRunner } from '../agents/runner/agent-runner'
+import { PlanActReflectStrategy } from '../agents/runner/plan-act-reflect.strategy'
 import { PROVIDER_RESOLVER, type ProviderResolver } from '../agents/provider-resolver'
+import type { PlanDraft, PlanStepDraft, RunnerOptions } from '../agents/runner/agent-strategy.interface'
 import { calcCost } from '../agents/models.registry'
 import type { AssistantToolCall, ChatMessage } from '../agents/llm/llm.interface'
 
 const RUN_SYSTEM_PROMPT = `You are agent-platform, an autonomous task agent working toward a goal.
-- Work in short steps. When unsure, call a tool rather than guess.
+- Follow the approved plan, working in short steps. When unsure, call a tool rather than guess.
 - Use the available tools; never invent tool results.
 - When the goal is achieved, write a concise, direct final answer for the user.`
 
@@ -16,14 +18,16 @@ type Emit = (event: SseEvent) => void
 const noop: Emit = () => {}
 
 /**
- * Executes a durable Run to completion: resolve the model, drive the agent
- * strategy toward the Run's goal, persist the transcript + step log, and record
- * the terminal status/result. Independent of the queue so it is directly
- * testable against a real database with a fake model provider.
+ * Drives a durable Run through the plan→approve→execute lifecycle: propose a
+ * plan (awaiting_approval), then — once approved — run the plan→act→reflect
+ * strategy to completion, persisting the transcript + step log and recording the
+ * terminal status/result. Independent of the queue so it is directly testable
+ * against a real database with a fake model provider.
  */
 @Injectable()
 export class RunEngine {
   private readonly logger = new Logger(RunEngine.name)
+  private readonly strategy = new PlanActReflectStrategy()
   // Agent loop limits — defaults mirror config/env; read directly so the engine
   // stays constructible in tests without the full env schema.
   private readonly maxIterations = Number(process.env.AGENT_MAX_ITERATIONS ?? 8)
@@ -35,17 +39,29 @@ export class RunEngine {
     @Inject(PROVIDER_RESOLVER) private readonly resolver: ProviderResolver,
   ) {}
 
-  async execute(runId: string, emit: Emit = noop): Promise<void> {
-    const run = await this.prisma.run.findUnique({
-      where: { id: runId },
-      include: {
-        conversation: { include: { messages: { orderBy: { createdAt: 'asc' }, take: 50 } } },
-      },
-    })
-    if (!run) {
-      this.logger.warn(`Run ${runId} not found; skipping`)
-      return
+  /** Planning phase: propose a plan for the goal and pause for approval. */
+  async plan(runId: string, emit: Emit = noop): Promise<void> {
+    const run = await this.loadRun(runId)
+    if (!run) return
+    try {
+      const draft = await this.runner.plan(this.optionsFor(run, emit), this.strategy)
+      await this.prisma.plan.upsert({
+        where: { runId },
+        create: { runId, steps: draft.steps as unknown as Prisma.InputJsonValue },
+        update: { steps: draft.steps as unknown as Prisma.InputJsonValue, approvedAt: null },
+      })
+      await this.prisma.run.update({ where: { id: runId }, data: { status: 'awaiting_approval' } })
+      emit({ type: 'plan_proposed', runId, steps: draft.steps })
+      emit({ type: 'run_status', runId, status: 'awaiting_approval' })
+    } catch (err) {
+      await this.fail(runId, err, emit)
     }
+  }
+
+  /** Execution phase: run the approved plan to completion. */
+  async execute(runId: string, emit: Emit = noop): Promise<void> {
+    const run = await this.loadRun(runId)
+    if (!run) return
 
     await this.transition(runId, 'running', emit)
 
@@ -56,25 +72,10 @@ export class RunEngine {
     }
 
     try {
-      const { provider, model } = this.resolver.resolve(run.conversation.model)
-      const history: ChatMessage[] = run.conversation.messages.map(m => ({
-        role: m.role as ChatMessage['role'],
-        content: m.content,
-        toolCalls: (m.toolCalls as unknown as AssistantToolCall[] | null) ?? undefined,
-        toolCallId: m.toolCallId ?? undefined,
-      }))
-
-      const result = await this.runner.run({
-        provider,
-        model,
-        systemPrompt: RUN_SYSTEM_PROMPT,
-        history,
-        userMessage: run.goal,
-        ctx: { userId: run.userId, conversationId: run.conversationId },
-        maxIterations: this.maxIterations,
-        maxTokens: this.maxTokens,
-        emit: collect,
-      })
+      const plan = run.plan ? { steps: run.plan.steps as unknown as PlanStepDraft[] } : undefined
+      const options = this.optionsFor(run, collect, plan)
+      const model = options.model
+      const result = await this.runner.run(options, this.strategy)
 
       await this.persistTranscript(run.conversationId, result.newMessages.slice(1))
       await this.appendSteps(runId, [
@@ -98,17 +99,62 @@ export class RunEngine {
       })
       emit({ type: 'run_status', runId, status: 'done' })
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
-      this.logger.error(`Run ${runId} failed: ${message}`)
       await this.appendSteps(runId, toolSteps(events))
-      await this.prisma.run.update({ where: { id: runId }, data: { status: 'failed', error: message } })
-      emit({ type: 'run_status', runId, status: 'failed' })
+      await this.fail(runId, err, emit)
+    }
+  }
+
+  private loadRun(runId: string) {
+    return this.prisma.run
+      .findUnique({
+        where: { id: runId },
+        include: {
+          plan: true,
+          conversation: { include: { messages: { orderBy: { createdAt: 'asc' }, take: 50 } } },
+        },
+      })
+      .then(run => {
+        if (!run) this.logger.warn(`Run ${runId} not found; skipping`)
+        return run
+      })
+  }
+
+  private optionsFor(
+    run: { userId: string; conversationId: string; goal: string; conversation: { model: string | null; messages: { role: string; content: string; toolCalls: unknown; toolCallId: string | null }[] } },
+    emit: Emit,
+    plan?: PlanDraft,
+  ): RunnerOptions {
+    const { provider, model } = this.resolver.resolve(run.conversation.model)
+    const history: ChatMessage[] = run.conversation.messages.map(m => ({
+      role: m.role as ChatMessage['role'],
+      content: m.content,
+      toolCalls: (m.toolCalls as unknown as AssistantToolCall[] | null) ?? undefined,
+      toolCallId: m.toolCallId ?? undefined,
+    }))
+    return {
+      provider,
+      model,
+      systemPrompt: RUN_SYSTEM_PROMPT,
+      history,
+      userMessage: run.goal,
+      plan,
+      ctx: { userId: run.userId, conversationId: run.conversationId },
+      maxIterations: this.maxIterations,
+      maxTokens: this.maxTokens,
+      emit,
     }
   }
 
   private async transition(runId: string, status: 'running', emit: Emit) {
     await this.prisma.run.update({ where: { id: runId }, data: { status } })
     emit({ type: 'run_status', runId, status })
+  }
+
+  private async fail(runId: string, err: unknown, emit: Emit) {
+    const message = err instanceof Error ? err.message : String(err)
+    this.logger.error(`Run ${runId} failed: ${message}`)
+    await this.prisma.run.update({ where: { id: runId }, data: { status: 'failed', error: message } })
+    emit({ type: 'run_status', runId, status: 'failed' })
   }
 
   private async persistTranscript(conversationId: string, messages: ChatMessage[]) {

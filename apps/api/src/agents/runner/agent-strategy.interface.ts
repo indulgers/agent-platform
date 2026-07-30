@@ -18,10 +18,23 @@ export interface RunnerOptions {
   ctx: { userId: string; conversationId: string }
   maxIterations: number
   maxTokens: number
+  /** The approved plan to execute, when running under plan→act→reflect. */
+  plan?: PlanDraft
   /** Called for every SSE event the strategy produces. */
   emit: (event: SseEvent) => void
   /** Cancelled by the client closing the SSE connection. */
   signal?: AbortSignal
+}
+
+/** One step of an agent-proposed plan. */
+export interface PlanStepDraft {
+  index: number
+  description: string
+}
+
+/** An ordered plan the user approves before autonomous execution begins. */
+export interface PlanDraft {
+  steps: PlanStepDraft[]
 }
 
 export interface RunnerResult {
@@ -45,4 +58,10 @@ export interface StrategyContext extends RunnerOptions {
 export interface AgentStrategy {
   readonly name: string
   run(ctx: StrategyContext): Promise<RunnerResult>
+  /**
+   * Optional planning phase: propose an ordered plan for the goal, which the
+   * user approves/edits before run() executes it. Strategies without a planning
+   * phase (e.g. the default act-until-stop loop) omit this.
+   */
+  plan?(ctx: StrategyContext): Promise<PlanDraft>
 }
