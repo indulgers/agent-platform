@@ -1,6 +1,9 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
+import { InjectQueue } from '@nestjs/bullmq'
+import { Queue } from 'bullmq'
 import { PrismaService } from '../prisma/prisma.service'
 import { ConversationsService } from '../conversations/conversations.service'
+import { RUN_QUEUE, type RunJobPayload } from './run-queue'
 import type { CreateRunInput } from '@agent-platform/shared'
 
 /** How much of a goal to use as the auto-created conversation title. */
@@ -11,12 +14,13 @@ export class RunsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
+    @InjectQueue(RUN_QUEUE) private readonly queue: Queue<RunJobPayload>,
   ) {}
 
   /**
    * Launch a Run for a goal. Reuses the supplied conversation (verifying
    * ownership) or starts a fresh one titled from the goal. The Run is created
-   * in `planning` with no plan and an empty step log — execution comes later.
+   * in `planning` and enqueued for durable background execution.
    */
   async create(userId: string, input: CreateRunInput) {
     let conversationId = input.conversationId
@@ -27,10 +31,12 @@ export class RunsService {
       conversationId = convo.id
     }
 
-    return this.prisma.run.create({
+    const run = await this.prisma.run.create({
       data: { userId, conversationId, goal: input.goal, status: 'planning' },
       include: { plan: true, steps: { orderBy: { seq: 'asc' } } },
     })
+    await this.queue.add('execute', { runId: run.id })
+    return run
   }
 
   /** A user's Runs, most-recently-updated first. */

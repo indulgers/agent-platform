@@ -1,7 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest'
+import type { Queue } from 'bullmq'
 import { PrismaService } from '../prisma/prisma.service'
 import { ConversationsService } from '../conversations/conversations.service'
 import { RunsService } from './runs.service'
+import type { RunJobPayload } from './run-queue'
+
+/** No-op queue — these tests exercise persistence/ownership, not job execution. */
+const stubQueue = { add: async () => undefined } as unknown as Queue<RunJobPayload>
 
 /**
  * Integration test at the persistence seam: RunsService against a real Postgres
@@ -13,7 +18,7 @@ const describeDb = process.env.DATABASE_URL ? describe : describe.skip
 describeDb('RunsService (integration — real Postgres)', () => {
   const prisma = new PrismaService()
   const conversations = new ConversationsService(prisma)
-  const runs = new RunsService(prisma, conversations)
+  const runs = new RunsService(prisma, conversations, stubQueue)
   let userA = ''
   let userB = ''
 

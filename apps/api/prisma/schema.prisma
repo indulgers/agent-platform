@@ -20,7 +20,6 @@ model User {
   passwordHash  String
   createdAt     DateTime       @default(now())
   conversations Conversation[]
-  tasks         Task[]
   runs          Run[]
 }
 
@@ -69,21 +68,6 @@ model MemoryChunk {
   createdAt      DateTime                    @default(now())
 
   @@index([userId])
-}
-
-model Task {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String
-  payload   Json
-  status    String   @default("queued")
-  result    Json?
-  error     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  @@index([userId, status])
 }
 
 /// Lifecycle of a durable Run — see docs/agents domain glossary.
