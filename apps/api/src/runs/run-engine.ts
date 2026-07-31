@@ -7,7 +7,8 @@ import { PlanActReflectStrategy } from '../agents/runner/plan-act-reflect.strate
 import { PROVIDER_RESOLVER, type ProviderResolver } from '../agents/provider-resolver'
 import type { PlanDraft, PlanStepDraft, RunnerOptions } from '../agents/runner/agent-strategy.interface'
 import { calcCost } from '../agents/models.registry'
-import type { AssistantToolCall, ChatMessage } from '../agents/llm/llm.interface'
+import { toChatMessage } from '../agents/chat-message.mapper'
+import type { ChatMessage } from '../agents/llm/llm.interface'
 
 const RUN_SYSTEM_PROMPT = `You are agent-platform, an autonomous task agent working toward a goal.
 - Follow the approved plan, working in short steps. When unsure, call a tool rather than guess.
@@ -183,12 +184,7 @@ export class RunEngine {
     plan?: PlanDraft,
   ): RunnerOptions {
     const { provider, model } = this.resolver.resolve(run.conversation.model)
-    const history: ChatMessage[] = run.conversation.messages.map(m => ({
-      role: m.role as ChatMessage['role'],
-      content: m.content,
-      toolCalls: (m.toolCalls as unknown as AssistantToolCall[] | null) ?? undefined,
-      toolCallId: m.toolCallId ?? undefined,
-    }))
+    const history: ChatMessage[] = run.conversation.messages.map(toChatMessage)
     return {
       provider,
       model,

@@ -43,14 +43,11 @@ export class EnvProviderResolver implements ProviderResolver {
   }
 
   private byName(name: string): ChatProvider {
-    switch (name) {
-      case 'openai':
-        return this.openai
-      case 'deepseek':
-        return this.deepseek
-      case 'anthropic':
-      default:
-        return this.anthropic
+    const byName: Record<string, ChatProvider> = {
+      openai: this.openai,
+      anthropic: this.anthropic,
+      deepseek: this.deepseek,
     }
+    return byName[name] ?? this.anthropic
   }
 }
