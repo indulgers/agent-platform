@@ -28,7 +28,7 @@ export class SdkMcpClient implements McpClient {
   }
 
   async listTools(): Promise<McpToolInfo[]> {
-    const res = await this.require().listTools()
+    const res = await this.connected().listTools()
     return (res.tools ?? []).map(t => ({
       name: t.name,
       description: t.description,
@@ -37,7 +37,7 @@ export class SdkMcpClient implements McpClient {
   }
 
   async callTool(name: string, args: unknown): Promise<unknown> {
-    const res = await this.require().callTool({ name, arguments: (args ?? {}) as Record<string, unknown> })
+    const res = await this.connected().callTool({ name, arguments: (args ?? {}) as Record<string, unknown> })
     if (res.isError) throw new Error(`MCP tool ${name} errored: ${JSON.stringify(res.content)}`)
     return res.content ?? res
   }
@@ -47,7 +47,7 @@ export class SdkMcpClient implements McpClient {
     this.client = null
   }
 
-  private require() {
+  private connected() {
     if (!this.client) throw new Error('MCP client not connected')
     return this.client
   }

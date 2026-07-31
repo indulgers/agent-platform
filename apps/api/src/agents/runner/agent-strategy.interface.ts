@@ -33,7 +33,7 @@ export interface RunnerOptions {
    * whether this checkpoint is already approved (`proceed`) or the run should
    * pause for approval (`pause`). Defaults to proceed when omitted.
    */
-  requestCheckpoint?: (call: { name: string; args: unknown }) => Promise<'proceed' | 'pause'>
+  requestCheckpoint?: (call: CheckpointCall) => Promise<'proceed' | 'pause'>
   /** Cancelled by the client closing the SSE connection, or on interrupt. */
   signal?: AbortSignal
 }
@@ -47,6 +47,12 @@ export interface PlanStepDraft {
 /** An ordered plan the user approves before autonomous execution begins. */
 export interface PlanDraft {
   steps: PlanStepDraft[]
+}
+
+/** A tool call awaiting human approval at a checkpoint. */
+export interface CheckpointCall {
+  name: string
+  args: unknown
 }
 
 export interface RunnerResult {
