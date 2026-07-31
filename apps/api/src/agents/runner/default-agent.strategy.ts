@@ -99,10 +99,36 @@ export class DefaultAgentStrategy implements AgentStrategy {
       }
     }
 
-    ctx.emit({
-      type: 'error',
-      message: `Agent stopped: reached max iterations (${ctx.maxIterations}) without final answer`,
+    // Tool budget exhausted without a final answer. Rather than leaving the
+    // user with a bare error, make one last completion with no tools so the
+    // model must answer from what it already has.
+    if (ctx.signal?.aborted) return { finalAssistantText, newMessages, usage }
+    const closing = ctx.provider.stream({
+      model: ctx.model,
+      messages: [
+        ...conversation,
+        {
+          role: 'user',
+          content:
+            'You have run out of tool-use steps. Give your best final answer now using only ' +
+            'what you already have; do not request more tools.',
+        },
+      ],
+      tools: [],
+      maxTokens: ctx.maxTokens,
+      signal: ctx.signal,
     })
+    for await (const evt of closing.events) {
+      if (ctx.signal?.aborted) return { finalAssistantText, newMessages, usage }
+      if (evt.kind === 'text_delta') ctx.emit({ type: 'token', delta: evt.delta })
+    }
+    const closingAssembled = await closing.done
+    if (closingAssembled.usage) {
+      usage.promptTokens += closingAssembled.usage.promptTokens
+      usage.completionTokens += closingAssembled.usage.completionTokens
+    }
+    finalAssistantText = closingAssembled.text
+    newMessages.push({ role: 'assistant', content: closingAssembled.text })
     return { finalAssistantText, newMessages, usage }
   }
 }
