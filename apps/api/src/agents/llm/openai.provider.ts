@@ -66,7 +66,10 @@ export class OpenAIProvider implements ChatProvider {
 
     ;(async () => {
       const text: string[] = []
-      const toolCalls = new Map<string, AssistantToolCall & { argBuffer: string }>()
+      // Keyed by the stream's tool-call `index`: OpenAI/DeepSeek send id + name
+      // only on the first chunk of each call, and later chunks carry index + a
+      // slice of `arguments`. Keying by index keeps parallel calls separate.
+      const toolCalls = new Map<number, { id: string; name: string; argBuffer: string }>()
       let finishReason: AssembledResponse['finishReason'] = 'stop'
 
       try {
@@ -132,20 +135,19 @@ export class OpenAIProvider implements ChatProvider {
             push({ kind: 'text_delta', delta: delta.content })
           }
           for (const tc of delta?.tool_calls ?? []) {
-            const id = tc.id ?? toolCalls.keys().next().value
-            if (!id) continue
-            let entry = toolCalls.get(id)
+            const index = tc.index
+            if (index == null) continue
+            let entry = toolCalls.get(index)
             if (!entry) {
-              entry = { id, name: tc.function?.name ?? '', args: undefined, argBuffer: '' }
-              toolCalls.set(id, entry)
-              push({ kind: 'tool_call_start', id, name: entry.name })
+              entry = { id: tc.id ?? '', name: tc.function?.name ?? '', argBuffer: '' }
+              toolCalls.set(index, entry)
+              push({ kind: 'tool_call_start', id: entry.id, name: entry.name })
             }
-            if (tc.function?.name && !entry.name) {
-              entry.name = tc.function.name
-            }
+            if (tc.id && !entry.id) entry.id = tc.id
+            if (tc.function?.name && !entry.name) entry.name = tc.function.name
             if (tc.function?.arguments) {
               entry.argBuffer += tc.function.arguments
-              push({ kind: 'tool_call_args_delta', id, argsDelta: tc.function.arguments })
+              push({ kind: 'tool_call_args_delta', id: entry.id, argsDelta: tc.function.arguments })
             }
           }
           if (choice.finish_reason) {
@@ -166,8 +168,11 @@ export class OpenAIProvider implements ChatProvider {
           try {
             args = entry.argBuffer ? JSON.parse(entry.argBuffer) : {}
           } catch (err) {
+            // Fall back to {} (never a fabricated `_raw` field): tool schema
+            // validation then returns a clear, self-correcting error rather than
+            // a phantom argument the model fixates on across turns.
             this.logger.warn(`Failed to parse tool args for ${entry.name}: ${err}`)
-            args = { _raw: entry.argBuffer }
+            args = {}
           }
           push({ kind: 'tool_call_end', id: entry.id })
           assembled.push({ id: entry.id, name: entry.name, args })

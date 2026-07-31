@@ -41,4 +41,27 @@ describe('DefaultAgentStrategy', () => {
     expect(emitted.some(e => e.type === 'tool_result' && e.ok === true)).toBe(true)
     expect(result.finalAssistantText).toBe('final')
   })
+
+  it('still returns a final answer when the tool budget is exhausted', async () => {
+    const emitted: SseEvent[] = []
+    const echo = makeFakeTool({ name: 'echo', result: { ok: true } })
+    // Every in-loop turn calls a tool (never stops); the closing tools-off call
+    // produces the answer.
+    const provider = new FakeChatProvider([
+      { toolCalls: [{ id: 'c1', name: 'echo', args: {} }], finishReason: 'tool_calls' },
+      { toolCalls: [{ id: 'c2', name: 'echo', args: {} }], finishReason: 'tool_calls' },
+      { text: 'here is my best answer', finishReason: 'stop' },
+    ])
+    const strategy = new DefaultAgentStrategy()
+
+    const result = await strategy.run(
+      context({ provider, tools: makeToolRegistryWith(echo), maxIterations: 2, emit: e => emitted.push(e) }),
+    )
+
+    expect(result.finalAssistantText).toBe('here is my best answer')
+    // The closing call runs with no tools.
+    expect(provider.calls[provider.calls.length - 1]!.tools).toEqual([])
+    // No bare "reached max iterations" error surfaced to the user.
+    expect(emitted.some(e => e.type === 'error')).toBe(false)
+  })
 })

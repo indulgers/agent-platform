@@ -123,8 +123,10 @@ export class AnthropicProvider implements ChatProvider {
           try {
             args = buf.args ? JSON.parse(buf.args) : {}
           } catch (err) {
+            // Fall back to {} (never a fabricated `_raw` field) so tool schema
+            // validation yields a clear, self-correcting error.
             this.logger.warn(`Failed to parse tool args for ${buf.name}: ${err}`)
-            args = { _raw: buf.args }
+            args = {}
           }
           assembled.push({ id: buf.id, name: buf.name, args })
         }
