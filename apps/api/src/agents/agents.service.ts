@@ -8,7 +8,8 @@ import { OpenAIProvider } from './llm/openai.provider'
 import { AnthropicProvider } from './llm/anthropic.provider'
 import { DeepSeekProvider } from './llm/deepseek.provider'
 import { MemoryService } from '../memory/memory.service'
-import type { AssistantToolCall, ChatAttachment, ChatMessage, ChatProvider } from './llm/llm.interface'
+import type { ChatAttachment, ChatMessage, ChatProvider } from './llm/llm.interface'
+import { toChatMessage } from './chat-message.mapper'
 import { calcCost, findModel } from './models.registry'
 import { S3Service } from '../uploads/s3.service'
 import { loadEnv } from '../config/env'
@@ -115,14 +116,9 @@ export class AgentsService {
       chatAttachments.push({ kind: 'image', mediaType: a.mediaType, dataBase64: data })
     }
 
-    const history: ChatMessage[] = conversation.messages.map(m => ({
-      role: m.role as ChatMessage['role'],
-      content: m.content,
-      toolCalls: (m.toolCalls as unknown as AssistantToolCall[] | null) ?? undefined,
-      toolCallId: m.toolCallId ?? undefined,
-      // History attachments aren't re-sent to the LLM — they were already
-      // consumed in the previous turn. Vision models don't reuse them.
-    }))
+    // History attachments aren't re-sent to the LLM — they were already
+    // consumed in the previous turn. Vision models don't reuse them.
+    const history: ChatMessage[] = conversation.messages.map(toChatMessage)
 
     const userMessageRow = await this.prisma.message.create({
       data: {

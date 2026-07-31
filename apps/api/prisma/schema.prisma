@@ -20,7 +20,7 @@ model User {
   passwordHash  String
   createdAt     DateTime       @default(now())
   conversations Conversation[]
-  tasks         Task[]
+  runs          Run[]
 }
 
 model Conversation {
@@ -34,6 +34,7 @@ model Conversation {
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
   messages  Message[]
+  runs      Run[]
 
   @@index([userId, updatedAt])
 }
@@ -69,17 +70,72 @@ model MemoryChunk {
   @@index([userId])
 }
 
-model Task {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  type      String
-  payload   Json
-  status    String   @default("queued")
-  result    Json?
-  error     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+/// Lifecycle of a durable Run — see docs/agents domain glossary.
+enum RunStatus {
+  planning
+  awaiting_approval
+  running
+  paused
+  done
+  failed
+}
 
-  @@index([userId, status])
+/// A durable, resumable execution of an agent toward a Goal. References a
+/// Conversation for its transcript so existing Message storage is reused.
+model Run {
+  id             String       @id @default(cuid())
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  /// The objective the user gave the agent.
+  goal           String
+  status         RunStatus    @default(planning)
+  /// Set by the interrupt endpoint; the engine stops at its next checkpoint.
+  interruptRequested Boolean  @default(false)
+  /// How many approval checkpoints the user has approved so far this Run.
+  checkpointsApproved Int     @default(0)
+  /// The tool call awaiting approval while paused. Shape: { name, args }.
+  pendingCheckpoint  Json?
+  /// Final result payload once the Run is done.
+  result         Json?
+  error          String?
+  /// Accumulated token usage/cost. Shape: { promptTokens, completionTokens, costUsd }
+  usage          Json?
+  plan           Plan?
+  steps          RunStep[]
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([userId, updatedAt])
+  @@index([conversationId])
+}
+
+/// The agent's proposed ordered steps for a Run; approved/edited by the user
+/// before autonomous execution. One per Run.
+model Plan {
+  id         String    @id @default(cuid())
+  runId      String    @unique
+  run        Run       @relation(fields: [runId], references: [id], onDelete: Cascade)
+  /// Ordered array of plan steps: [{ index, description }]
+  steps      Json
+  approvedAt DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
+/// One persisted unit of a Run's execution (a reasoning/act/tool cycle), so a
+/// Run can resume by replaying its step log.
+model RunStep {
+  id        String   @id @default(cuid())
+  runId     String
+  run       Run      @relation(fields: [runId], references: [id], onDelete: Cascade)
+  seq       Int
+  /// e.g. 'plan' | 'act' | 'reflect' | 'tool_result' | 'checkpoint'
+  kind      String
+  data      Json
+  createdAt DateTime @default(now())
+
+  @@unique([runId, seq])
+  @@index([runId])
 }

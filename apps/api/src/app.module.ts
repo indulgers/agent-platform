@@ -5,8 +5,8 @@ import { PrismaModule } from './prisma/prisma.module'
 import { AuthModule } from './auth/auth.module'
 import { UsersModule } from './users/users.module'
 import { ConversationsModule } from './conversations/conversations.module'
+import { RunsModule } from './runs/runs.module'
 import { AgentsModule } from './agents/agents.module'
-import { TasksModule } from './tasks/tasks.module'
 import { MemoryModule } from './memory/memory.module'
 import { UploadsModule } from './uploads/uploads.module'
 import { HealthController } from './common/health.controller'
@@ -22,8 +22,8 @@ import { HealthController } from './common/health.controller'
     AuthModule,
     UsersModule,
     ConversationsModule,
+    RunsModule,
     AgentsModule,
-    TasksModule,
     MemoryModule,
   ],
   controllers: [HealthController],
