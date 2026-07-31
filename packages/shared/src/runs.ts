@@ -63,3 +63,9 @@ export const approvePlanInputSchema = z.object({
   steps: z.array(planStepSchema).optional(),
 })
 export type ApprovePlanInput = z.infer<typeof approvePlanInputSchema>
+
+/** Payload to resolve a paused approval checkpoint: approve (resume) or reject. */
+export const resolveCheckpointInputSchema = z.object({
+  approve: z.boolean(),
+})
+export type ResolveCheckpointInput = z.infer<typeof resolveCheckpointInputSchema>

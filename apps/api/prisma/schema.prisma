@@ -93,6 +93,10 @@ model Run {
   status         RunStatus    @default(planning)
   /// Set by the interrupt endpoint; the engine stops at its next checkpoint.
   interruptRequested Boolean  @default(false)
+  /// How many approval checkpoints the user has approved so far this Run.
+  checkpointsApproved Int     @default(0)
+  /// The tool call awaiting approval while paused. Shape: { name, args }.
+  pendingCheckpoint  Json?
   /// Final result payload once the Run is done.
   result         Json?
   error          String?

@@ -10,6 +10,7 @@ export type SseEvent =
   | { type: 'tool_result'; id: string; ok: boolean; result?: unknown; error?: string }
   | { type: 'run_status'; runId: string; status: RunStatus }
   | { type: 'plan_proposed'; runId: string; steps: { index: number; description: string }[] }
+  | { type: 'checkpoint_hit'; runId: string; tool: string; args: unknown }
   | { type: 'usage'; model: string; promptTokens: number; completionTokens: number; costUsd: number }
   | { type: 'message_done'; messageId: string }
   | { type: 'error'; message: string }

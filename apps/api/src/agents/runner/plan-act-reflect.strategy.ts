@@ -128,6 +128,14 @@ export class PlanActReflectStrategy implements AgentStrategy {
           pushToolMessage(conversation, newMessages, call.id, { error })
           continue
         }
+        // Costly/destructive tools pause for approval before running.
+        if (tool.requiresApproval) {
+          const decision =
+            (await ctx.requestCheckpoint?.({ name: call.name, args: call.args })) ?? 'proceed'
+          if (decision === 'pause') {
+            return { finalAssistantText, newMessages, usage }
+          }
+        }
         try {
           const parsed = tool.schema.parse(call.args)
           const result = await this.executeWithRetry(tool, parsed, ctx.ctx)

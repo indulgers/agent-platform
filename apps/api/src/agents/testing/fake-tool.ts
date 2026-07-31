@@ -12,6 +12,8 @@ export interface FakeToolOptions {
   fail?: string
   /** Fail the first N calls (then succeed) — for retry tests. */
   failTimes?: number
+  /** Marks the tool as needing human approval before it runs. */
+  requiresApproval?: boolean
   /** Invoked with the parsed input each time the tool runs. */
   onCall?: (input: unknown, ctx: ToolContext) => void
 }
@@ -28,6 +30,7 @@ export function makeFakeTool(opts: FakeToolOptions): ToolDefinition {
     description: opts.description ?? `fake tool: ${opts.name}`,
     schema: z.object({}).passthrough(),
     parameters: { type: 'object', properties: {}, additionalProperties: true },
+    requiresApproval: opts.requiresApproval,
     async execute(input: unknown, ctx: ToolContext): Promise<unknown> {
       calls++
       opts.onCall?.(input, ctx)

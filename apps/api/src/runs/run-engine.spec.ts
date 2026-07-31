@@ -141,6 +141,33 @@ describeDb('RunEngine (integration — real Postgres)', () => {
     expect(provider.calls.length).toBe(1)
   })
 
+  it('pauses at an approval checkpoint, then completes once approved', async () => {
+    const run = await newRun('delete some stuff')
+    const danger = makeFakeTool({ name: 'delete_all', requiresApproval: true, result: { ok: true } })
+    const runner = new AgentRunner(makeToolRegistryWith(danger))
+    const provider = new FakeChatProvider([
+      { toolCalls: [{ id: 'c1', name: 'delete_all', args: { x: 1 } }], finishReason: 'tool_calls' },
+      { toolCalls: [{ id: 'c2', name: 'delete_all', args: { x: 1 } }], finishReason: 'tool_calls' },
+      { text: 'deleted', finishReason: 'stop' },
+    ])
+    const engine = new RunEngine(prisma, runner, resolverWith(provider))
+
+    // First pass pauses for approval — the tool has not run.
+    const emitted: SseEvent[] = []
+    await engine.execute(run.id, e => emitted.push(e))
+    let saved = await prisma.run.findUniqueOrThrow({ where: { id: run.id } })
+    expect(saved.status).toBe('paused')
+    expect(saved.pendingCheckpoint).toMatchObject({ name: 'delete_all' })
+    expect(emitted.some(e => e.type === 'checkpoint_hit')).toBe(true)
+
+    // Approve (record approval + resume) and re-run — now it executes to done.
+    await prisma.run.update({ where: { id: run.id }, data: { checkpointsApproved: 1, status: 'running' } })
+    await engine.execute(run.id)
+    saved = await prisma.run.findUniqueOrThrow({ where: { id: run.id } })
+    expect(saved.status).toBe('done')
+    expect((saved.result as { answer: string }).answer).toBe('deleted')
+  })
+
   it('marks a Run failed when execution throws', async () => {
     const run = await newRun('this will fail')
     const runner = new AgentRunner(makeToolRegistryWith())

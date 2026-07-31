@@ -11,6 +11,11 @@ export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
   schema: z.ZodType<TInput>
   /** JSON Schema (object) — derived from the zod schema. */
   parameters: Record<string, unknown>
+  /**
+   * When true, the agent pauses for human approval before this tool runs
+   * (costly or destructive actions). Enforced by the plan→act→reflect strategy.
+   */
+  requiresApproval?: boolean
   execute(input: TInput, ctx: ToolContext): Promise<TOutput>
 }
 

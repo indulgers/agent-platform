@@ -28,6 +28,12 @@ export interface RunnerOptions {
    * via `signal` (e.g. on interrupt). No-op when omitted.
    */
   checkpoint?: (messagesSoFar: ChatMessage[]) => Promise<void>
+  /**
+   * Called before running a tool that `requiresApproval`. The host decides
+   * whether this checkpoint is already approved (`proceed`) or the run should
+   * pause for approval (`pause`). Defaults to proceed when omitted.
+   */
+  requestCheckpoint?: (call: { name: string; args: unknown }) => Promise<'proceed' | 'pause'>
   /** Cancelled by the client closing the SSE connection, or on interrupt. */
   signal?: AbortSignal
 }

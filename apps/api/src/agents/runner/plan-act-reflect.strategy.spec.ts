@@ -85,6 +85,54 @@ describe('PlanActReflectStrategy', () => {
     expect(result.finalAssistantText).toBe('succeeded')
   })
 
+  it('run() pauses before a tool that requires approval', async () => {
+    let executed = false
+    const danger = makeFakeTool({ name: 'delete_all', requiresApproval: true, onCall: () => { executed = true } })
+    const provider = new FakeChatProvider([
+      { toolCalls: [{ id: 'c1', name: 'delete_all', args: {} }], finishReason: 'tool_calls' },
+    ])
+    const strategy = new PlanActReflectStrategy()
+    const emitted: SseEvent[] = []
+
+    await strategy.run(
+      context({
+        provider,
+        tools: makeToolRegistryWith(danger),
+        emit: e => emitted.push(e),
+        requestCheckpoint: async () => 'pause',
+      }),
+    )
+
+    expect(executed).toBe(false)
+    expect(emitted.some(e => e.type === 'tool_result')).toBe(false)
+  })
+
+  it('run() executes an approval-gated tool when the checkpoint proceeds', async () => {
+    let executed = false
+    const danger = makeFakeTool({
+      name: 'delete_all',
+      requiresApproval: true,
+      result: { ok: true },
+      onCall: () => { executed = true },
+    })
+    const provider = new FakeChatProvider([
+      { toolCalls: [{ id: 'c1', name: 'delete_all', args: {} }], finishReason: 'tool_calls' },
+      { text: 'deleted', finishReason: 'stop' },
+    ])
+    const strategy = new PlanActReflectStrategy()
+
+    const result = await strategy.run(
+      context({
+        provider,
+        tools: makeToolRegistryWith(danger),
+        requestCheckpoint: async () => 'proceed',
+      }),
+    )
+
+    expect(executed).toBe(true)
+    expect(result.finalAssistantText).toBe('deleted')
+  })
+
   it('run() injects the approved plan into the system prompt', async () => {
     const provider = new FakeChatProvider([{ text: 'done', finishReason: 'stop' }])
     const strategy = new PlanActReflectStrategy()

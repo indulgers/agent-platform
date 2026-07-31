@@ -93,7 +93,33 @@ export class RunEngine {
         if (await this.interruptRequested(runId)) ac.abort()
       }
 
+      // Approval checkpoints: proceed for those already approved this Run,
+      // otherwise pause and wait for the approve-checkpoint endpoint.
+      const approvedSoFar = run.checkpointsApproved
+      let checkpointSeq = 0
+      let paused = false
+      options.requestCheckpoint = async call => {
+        checkpointSeq++
+        if (checkpointSeq <= approvedSoFar) return 'proceed'
+        paused = true
+        await this.prisma.run.update({
+          where: { id: runId },
+          data: { status: 'paused', pendingCheckpoint: call as unknown as Prisma.InputJsonValue },
+        })
+        emit({ type: 'checkpoint_hit', runId, tool: call.name, args: call.args })
+        emit({ type: 'run_status', runId, status: 'paused' })
+        return 'pause'
+      }
+
       const result = await this.runner.run(options, this.strategy)
+
+      if (paused) {
+        // Persist audit steps only; the pending assistant/tool turn is replayed
+        // (and executed) after approval. Status is already `paused`.
+        await this.appendSteps(runId, toolSteps(events))
+        return
+      }
+
       await persistDelta(result.newMessages)
       await this.appendSteps(runId, [
         ...toolSteps(events),

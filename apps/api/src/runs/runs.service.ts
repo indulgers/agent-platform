@@ -84,6 +84,35 @@ export class RunsService {
     return this.get(userId, id)
   }
 
+  /**
+   * Resolve a paused approval checkpoint. Approving records the approval and
+   * re-enqueues execution (which replays and now runs the approved step);
+   * rejecting fails the Run.
+   */
+  async resolveCheckpoint(userId: string, id: string, approve: boolean) {
+    const run = await this.get(userId, id)
+    if (run.status !== 'paused') {
+      throw new BadRequestException(`Run is ${run.status}, not paused`)
+    }
+    if (approve) {
+      await this.prisma.run.update({
+        where: { id },
+        data: {
+          checkpointsApproved: { increment: 1 },
+          pendingCheckpoint: Prisma.JsonNull,
+          status: 'running',
+        },
+      })
+      await this.queue.add('execute', { runId: id }, JOB_OPTS)
+    } else {
+      await this.prisma.run.update({
+        where: { id },
+        data: { status: 'failed', error: 'Checkpoint rejected by user', pendingCheckpoint: Prisma.JsonNull },
+      })
+    }
+    return this.get(userId, id)
+  }
+
   /** A user's Runs, most-recently-updated first. */
   async list(userId: string) {
     return this.prisma.run.findMany({
