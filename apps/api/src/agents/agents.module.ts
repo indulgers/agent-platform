@@ -8,6 +8,7 @@ import { AnthropicProvider } from './llm/anthropic.provider'
 import { DeepSeekProvider } from './llm/deepseek.provider'
 import { ToolRegistry } from './tools'
 import { EnvProviderResolver, PROVIDER_RESOLVER } from './provider-resolver'
+import { McpService } from './mcp/mcp.service'
 import { ConversationsModule } from '../conversations/conversations.module'
 import { MemoryModule } from '../memory/memory.module'
 
@@ -20,6 +21,7 @@ import { MemoryModule } from '../memory/memory.module'
     AnthropicProvider,
     DeepSeekProvider,
     ToolRegistry,
+    McpService,
     EnvProviderResolver,
     { provide: PROVIDER_RESOLVER, useExisting: EnvProviderResolver },
   ],
