@@ -91,6 +91,8 @@ model Run {
   /// The objective the user gave the agent.
   goal           String
   status         RunStatus    @default(planning)
+  /// Set by the interrupt endpoint; the engine stops at its next checkpoint.
+  interruptRequested Boolean  @default(false)
   /// Final result payload once the Run is done.
   result         Json?
   error          String?

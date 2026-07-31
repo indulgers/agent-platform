@@ -1,5 +1,6 @@
 import { Logger } from '@nestjs/common'
 import type { ChatMessage, ToolSpec } from '../llm/llm.interface'
+import type { ToolContext, ToolDefinition } from '../tools/tool.interface'
 import type {
   AgentStrategy,
   PlanDraft,
@@ -20,6 +21,29 @@ concrete steps. Reply with ONLY a numbered list, one step per line, no preamble.
 export class PlanActReflectStrategy implements AgentStrategy {
   readonly name = 'plan-act-reflect'
   private readonly logger = new Logger(PlanActReflectStrategy.name)
+  /** Transient tool failures are retried before the step is treated as failed. */
+  private readonly toolRetries = 2
+  private readonly toolRetryBaseMs = 50
+
+  /** Execute a tool, retrying transient failures with linear backoff. */
+  private async executeWithRetry(
+    tool: ToolDefinition,
+    input: unknown,
+    toolCtx: ToolContext,
+  ): Promise<unknown> {
+    let lastErr: unknown
+    for (let attempt = 0; attempt <= this.toolRetries; attempt++) {
+      try {
+        return await tool.execute(input, toolCtx)
+      } catch (err) {
+        lastErr = err
+        if (attempt < this.toolRetries) {
+          await new Promise(r => setTimeout(r, this.toolRetryBaseMs * (attempt + 1)))
+        }
+      }
+    }
+    throw lastErr
+  }
 
   async plan(ctx: StrategyContext): Promise<PlanDraft> {
     const { events, done } = ctx.provider.stream({
@@ -106,7 +130,7 @@ export class PlanActReflectStrategy implements AgentStrategy {
         }
         try {
           const parsed = tool.schema.parse(call.args)
-          const result = await tool.execute(parsed, ctx.ctx)
+          const result = await this.executeWithRetry(tool, parsed, ctx.ctx)
           ctx.emit({ type: 'tool_result', id: call.id, ok: true, result })
           pushToolMessage(conversation, newMessages, call.id, result)
         } catch (err) {
@@ -129,6 +153,9 @@ export class PlanActReflectStrategy implements AgentStrategy {
         conversation.push(reflection)
         newMessages.push(reflection)
       }
+
+      // Persist progress + honour interrupts between iterations.
+      await ctx.checkpoint?.(newMessages)
     }
 
     ctx.emit({

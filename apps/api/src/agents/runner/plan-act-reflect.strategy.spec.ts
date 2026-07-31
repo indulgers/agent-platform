@@ -56,6 +56,35 @@ describe('PlanActReflectStrategy', () => {
     expect(result.finalAssistantText).toBe('recovered without the tool')
   })
 
+  it('run() retries a transient tool failure before reporting the result', async () => {
+    let toolCalls = 0
+    const flaky = makeFakeTool({
+      name: 'flaky',
+      failTimes: 1,
+      result: { ok: true },
+      onCall: () => {
+        toolCalls++
+      },
+    })
+    const provider = new FakeChatProvider([
+      { toolCalls: [{ id: 'c1', name: 'flaky', args: {} }], finishReason: 'tool_calls' },
+      { text: 'succeeded', finishReason: 'stop' },
+    ])
+    const strategy = new PlanActReflectStrategy()
+    const emitted: SseEvent[] = []
+
+    const result = await strategy.run(
+      context({ provider, tools: makeToolRegistryWith(flaky), emit: e => emitted.push(e) }),
+    )
+
+    // Failed once, retried, then succeeded — no failed tool_result surfaced.
+    expect(toolCalls).toBe(2)
+    const toolResults = emitted.filter(e => e.type === 'tool_result')
+    expect(toolResults.length).toBe(1)
+    expect(toolResults.every(e => e.type === 'tool_result' && e.ok)).toBe(true)
+    expect(result.finalAssistantText).toBe('succeeded')
+  })
+
   it('run() injects the approved plan into the system prompt', async () => {
     const provider = new FakeChatProvider([{ text: 'done', finishReason: 'stop' }])
     const strategy = new PlanActReflectStrategy()

@@ -71,17 +71,43 @@ export class RunEngine {
       emit(e)
     }
 
+    const ac = new AbortController()
+
     try {
       const plan = run.plan ? { steps: run.plan.steps as unknown as PlanStepDraft[] } : undefined
       const options = this.optionsFor(run, collect, plan)
       const model = options.model
-      const result = await this.runner.run(options, this.strategy)
 
-      await this.persistTranscript(run.conversationId, result.newMessages.slice(1))
+      // Persist the transcript incrementally so progress survives a crash, and
+      // abort at the next checkpoint when an interrupt has been requested.
+      // Index 0 of newMessages is the goal (userTurn), never a transcript row.
+      let persisted = 1
+      const persistDelta = async (msgs: ChatMessage[]) => {
+        for (; persisted < msgs.length; persisted++) {
+          await this.persistMessage(run.conversationId, msgs[persisted]!)
+        }
+      }
+      options.signal = ac.signal
+      options.checkpoint = async msgs => {
+        await persistDelta(msgs)
+        if (await this.interruptRequested(runId)) ac.abort()
+      }
+
+      const result = await this.runner.run(options, this.strategy)
+      await persistDelta(result.newMessages)
       await this.appendSteps(runId, [
         ...toolSteps(events),
         { kind: 'answer', data: { text: result.finalAssistantText } },
       ])
+
+      if (ac.signal.aborted) {
+        await this.prisma.run.update({
+          where: { id: runId },
+          data: { status: 'failed', error: 'Interrupted by user' },
+        })
+        emit({ type: 'run_status', runId, status: 'failed' })
+        return
+      }
 
       const usage = {
         model,
@@ -102,6 +128,12 @@ export class RunEngine {
       await this.appendSteps(runId, toolSteps(events))
       await this.fail(runId, err, emit)
     }
+  }
+
+  private interruptRequested(runId: string): Promise<boolean> {
+    return this.prisma.run
+      .findUnique({ where: { id: runId }, select: { interruptRequested: true } })
+      .then(r => !!r?.interruptRequested)
   }
 
   private loadRun(runId: string) {
@@ -157,18 +189,16 @@ export class RunEngine {
     emit({ type: 'run_status', runId, status: 'failed' })
   }
 
-  private async persistTranscript(conversationId: string, messages: ChatMessage[]) {
-    for (const m of messages) {
-      await this.prisma.message.create({
-        data: {
-          conversationId,
-          role: m.role,
-          content: m.content,
-          toolCalls: m.toolCalls ? (m.toolCalls as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
-          toolCallId: m.toolCallId ?? null,
-        },
-      })
-    }
+  private async persistMessage(conversationId: string, m: ChatMessage) {
+    await this.prisma.message.create({
+      data: {
+        conversationId,
+        role: m.role,
+        content: m.content,
+        toolCalls: m.toolCalls ? (m.toolCalls as unknown as Prisma.InputJsonValue) : Prisma.JsonNull,
+        toolCallId: m.toolCallId ?? null,
+      },
+    })
   }
 
   private async appendSteps(runId: string, steps: { kind: string; data: unknown }[]) {

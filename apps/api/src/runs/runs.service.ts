@@ -10,6 +10,14 @@ import type { ApprovePlanInput, CreateRunInput } from '@agent-platform/shared'
 /** How much of a goal to use as the auto-created conversation title. */
 const TITLE_MAX_LEN = 48
 
+/** Transient failures retry with exponential backoff before the Run is failed. */
+const JOB_OPTS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 1000 },
+  removeOnComplete: 100,
+  removeOnFail: 500,
+}
+
 @Injectable()
 export class RunsService {
   constructor(
@@ -37,7 +45,7 @@ export class RunsService {
       data: { userId, conversationId, goal: input.goal, status: 'planning' },
       include: { plan: true, steps: { orderBy: { seq: 'asc' } } },
     })
-    await this.queue.add('plan', { runId: run.id })
+    await this.queue.add('plan', { runId: run.id }, JOB_OPTS)
     return run
   }
 
@@ -58,7 +66,21 @@ export class RunsService {
         ...(editedSteps ? { steps: editedSteps as unknown as Prisma.InputJsonValue } : {}),
       },
     })
-    await this.queue.add('execute', { runId: id })
+    await this.queue.add('execute', { runId: id }, JOB_OPTS)
+    return this.get(userId, id)
+  }
+
+  /**
+   * Request interruption of an in-flight Run. The engine stops at its next
+   * checkpoint and marks the Run failed ("Interrupted by user"). No-op-safe on
+   * Runs that have already finished.
+   */
+  async interrupt(userId: string, id: string) {
+    const run = await this.get(userId, id)
+    if (run.status === 'done' || run.status === 'failed') {
+      throw new BadRequestException(`Run is already ${run.status}`)
+    }
+    await this.prisma.run.update({ where: { id }, data: { interruptRequested: true } })
     return this.get(userId, id)
   }
 

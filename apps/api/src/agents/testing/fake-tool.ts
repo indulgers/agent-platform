@@ -8,8 +8,10 @@ export interface FakeToolOptions {
   description?: string
   /** Value returned by execute() when the tool is called. */
   result?: unknown
-  /** When set, execute() rejects with this message — for reflection/retry tests. */
+  /** When set, execute() always rejects with this message — for reflection tests. */
   fail?: string
+  /** Fail the first N calls (then succeed) — for retry tests. */
+  failTimes?: number
   /** Invoked with the parsed input each time the tool runs. */
   onCall?: (input: unknown, ctx: ToolContext) => void
 }
@@ -20,14 +22,19 @@ export interface FakeToolOptions {
  * `onCall`. Used to drive tool-calling paths through the AgentRunner.
  */
 export function makeFakeTool(opts: FakeToolOptions): ToolDefinition {
+  let calls = 0
   return {
     name: opts.name,
     description: opts.description ?? `fake tool: ${opts.name}`,
     schema: z.object({}).passthrough(),
     parameters: { type: 'object', properties: {}, additionalProperties: true },
     async execute(input: unknown, ctx: ToolContext): Promise<unknown> {
+      calls++
       opts.onCall?.(input, ctx)
       if (opts.fail !== undefined) throw new Error(opts.fail)
+      if (opts.failTimes !== undefined && calls <= opts.failTimes) {
+        throw new Error(`transient failure ${calls}/${opts.failTimes}`)
+      }
       return opts.result ?? { ok: true }
     },
   }

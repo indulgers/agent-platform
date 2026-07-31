@@ -36,4 +36,9 @@ export class RunsController {
     if (!parsed.success) throw new BadRequestException(parsed.error.issues)
     return this.runs.approvePlan(user.sub, id, parsed.data)
   }
+
+  @Post(':id/interrupt')
+  interrupt(@CurrentUser() user: CurrentUserPayload, @Param('id') id: string) {
+    return this.runs.interrupt(user.sub, id)
+  }
 }

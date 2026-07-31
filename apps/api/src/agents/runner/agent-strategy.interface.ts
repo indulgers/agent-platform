@@ -22,7 +22,13 @@ export interface RunnerOptions {
   plan?: PlanDraft
   /** Called for every SSE event the strategy produces. */
   emit: (event: SseEvent) => void
-  /** Cancelled by the client closing the SSE connection. */
+  /**
+   * Awaited after each completed iteration with the messages produced so far.
+   * Lets the host persist progress incrementally (for durable resume) and abort
+   * via `signal` (e.g. on interrupt). No-op when omitted.
+   */
+  checkpoint?: (messagesSoFar: ChatMessage[]) => Promise<void>
+  /** Cancelled by the client closing the SSE connection, or on interrupt. */
   signal?: AbortSignal
 }
 
