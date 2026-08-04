@@ -2,6 +2,7 @@ import { Body, Controller, Param, Post, Req, Res, UseGuards } from '@nestjs/comm
 import type { Request, Response } from 'express'
 import type { SseEvent } from '@agent-platform/shared'
 import { AgentsService } from './agents.service'
+import { openSseStream, writeSse } from '../common/sse'
 import { JwtAuthGuard } from '../auth/jwt-auth.guard'
 import { CurrentUser, CurrentUserPayload } from '../common/decorators/current-user.decorator'
 
@@ -97,24 +98,11 @@ export class AgentsController {
   }
 
   private makeEmit(res: Response) {
-    return (event: SseEvent) => {
-      // If the client has already disconnected the socket, writing throws.
-      // Swallow it — the runner sees the abort signal and unwinds separately.
-      if (res.writableEnded || res.destroyed) return
-      try {
-        res.write(`data: ${JSON.stringify(event)}\n\n`)
-      } catch {
-        /* socket gone */
-      }
-    }
+    return (event: SseEvent) => writeSse(res, event)
   }
 
   private async handleStream(req: Request, res: Response, run: (c: AbortController) => Promise<unknown>) {
-    res.setHeader('Content-Type', 'text/event-stream')
-    res.setHeader('Cache-Control', 'no-cache, no-transform')
-    res.setHeader('Connection', 'keep-alive')
-    res.setHeader('X-Accel-Buffering', 'no')
-    res.flushHeaders()
+    openSseStream(res)
 
     const controller = new AbortController()
     const onClose = () => controller.abort()
@@ -125,11 +113,7 @@ export class AgentsController {
     } catch (err) {
       if (!controller.signal.aborted) {
         const message = err instanceof Error ? err.message : String(err)
-        try {
-          res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`)
-        } catch {
-          /* socket gone */
-        }
+        writeSse(res, { type: 'error', message })
       }
     } finally {
       req.off('close', onClose)

@@ -32,6 +32,23 @@ function RootLayout() {
             </Badge>
           </Link>
 
+          {user && (
+            <nav className="flex items-center gap-1 text-[13px]" aria-label="Primary">
+              <Link
+                to="/"
+                className="px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-[color:var(--color-surface-2)] transition-colors [&.active]:text-foreground [&.active]:bg-[color:var(--color-surface-2)]"
+              >
+                Chat
+              </Link>
+              <Link
+                to="/runs"
+                className="px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-[color:var(--color-surface-2)] transition-colors [&.active]:text-foreground [&.active]:bg-[color:var(--color-surface-2)]"
+              >
+                Runs
+              </Link>
+            </nav>
+          )}
+
           <div className="flex items-center gap-2 text-[13px]">
             <button
               type="button"
