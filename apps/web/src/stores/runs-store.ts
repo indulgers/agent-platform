@@ -23,6 +23,7 @@ export type PendingAction = 'plan' | 'checkpoint' | null
 
 interface RunsState {
   runId: string | null
+  goal: string | null
   status: RunStatus | null
   /** Proposed plan steps (from `plan_proposed` or a snapshot) — editable before approval. */
   proposedSteps: PlanStep[] | null
@@ -50,6 +51,7 @@ function pendingFor(status: RunStatus | null): PendingAction {
 
 const initial = {
   runId: null,
+  goal: null,
   status: null,
   proposedSteps: null,
   checkpoint: null,
@@ -90,6 +92,7 @@ export const useRunsStore = create<RunsState>((set, get) => ({
     const pendingCheckpoint = (run as { pendingCheckpoint?: { name: string; args: unknown } }).pendingCheckpoint
     set({
       runId: run.id,
+      goal: run.goal,
       status: run.status,
       proposedSteps: run.plan?.steps ?? null,
       checkpoint:
@@ -121,6 +124,9 @@ export const useRunsStore = create<RunsState>((set, get) => ({
         set({ checkpoint: { tool: event.tool, args: event.args } })
         break
       case 'tool_call':
+        // Idempotent: a checkpoint-approval replays execution, re-emitting earlier
+        // tool calls with the same id — don't double-render them.
+        if (get().tools.some(t => t.id === event.id)) break
         set(s => ({
           tools: [...s.tools, { id: event.id, name: event.name, args: event.args, status: 'running' }],
         }))

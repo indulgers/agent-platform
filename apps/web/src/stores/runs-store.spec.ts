@@ -72,6 +72,14 @@ describe('runs-store reducer', () => {
     expect(useRunsStore.getState().tools[0]).toMatchObject({ status: 'error', error: 'boom' })
   })
 
+  it('ignores a duplicate tool_call id (idempotent replay after checkpoint approval)', () => {
+    feed([
+      { type: 'tool_call', id: 't1', name: 'http_fetch', args: { url: 'x' } },
+      { type: 'tool_call', id: 't1', name: 'http_fetch', args: { url: 'x' } },
+    ])
+    expect(useRunsStore.getState().tools).toHaveLength(1)
+  })
+
   it('accumulates streaming answer tokens', () => {
     feed([
       { type: 'token', delta: 'Hel' },
@@ -97,6 +105,7 @@ describe('runs-store reducer', () => {
     })
     const s = useRunsStore.getState()
     expect(s.runId).toBe('r9')
+    expect(s.goal).toBe('do a thing')
     expect(s.status).toBe('done')
     expect(s.answer).toBe('final text')
     expect(s.proposedSteps).toEqual([{ index: 0, description: 'step' }])

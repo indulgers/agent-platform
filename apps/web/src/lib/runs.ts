@@ -33,10 +33,17 @@ export function useRuns(enabled = true) {
 export function useRun(id: string, enabled = true) {
   return useQuery({
     queryKey: [...KEY, id] as const,
-    queryFn: () => api<Run>(`/runs/${id}`),
+    queryFn: () => getRun(id),
     enabled,
   })
 }
+
+/** One-shot fetch of a Run snapshot (used by the detail pane before it subscribes live). */
+export function getRun(id: string) {
+  return api<Run>(`/runs/${id}`)
+}
+
+export const RUNS_KEY = KEY
 
 /** Insert a freshly-created Run at the head of the rail list (newest first, de-duped). */
 export function prependRunRow(prev: RunListRow[] | undefined, run: Run): RunListRow[] {

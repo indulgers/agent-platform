@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client'
 import { Queue } from 'bullmq'
 import { PrismaService } from '../prisma/prisma.service'
 import { ConversationsService } from '../conversations/conversations.service'
+import { RunEventsService } from './run-events'
 import { RUN_QUEUE, type RunJobPayload } from './run-queue'
 import type { ApprovePlanInput, CreateRunInput } from '@agent-platform/shared'
 
@@ -24,6 +25,7 @@ export class RunsService {
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
     @InjectQueue(RUN_QUEUE) private readonly queue: Queue<RunJobPayload>,
+    private readonly runEvents: RunEventsService,
   ) {}
 
   /**
@@ -71,16 +73,30 @@ export class RunsService {
   }
 
   /**
-   * Request interruption of an in-flight Run. The engine stops at its next
-   * checkpoint and marks the Run failed ("Interrupted by user"). No-op-safe on
-   * Runs that have already finished.
+   * Stop a Run. A `running` Run is flagged so the engine unwinds at its next
+   * checkpoint; a Run that isn't actively executing (`planning`,
+   * `awaiting_approval`, `paused`) has no job to observe the flag, so it is
+   * failed directly and live watchers are notified. No-op-safe on finished Runs.
    */
   async interrupt(userId: string, id: string) {
     const run = await this.get(userId, id)
     if (run.status === 'done' || run.status === 'failed') {
       throw new BadRequestException(`Run is already ${run.status}`)
     }
-    await this.prisma.run.update({ where: { id }, data: { interruptRequested: true } })
+    if (run.status === 'running') {
+      await this.prisma.run.update({ where: { id }, data: { interruptRequested: true } })
+      return this.get(userId, id)
+    }
+    await this.prisma.run.update({
+      where: { id },
+      data: {
+        status: 'failed',
+        error: 'Interrupted by user',
+        interruptRequested: true,
+        pendingCheckpoint: Prisma.JsonNull,
+      },
+    })
+    await this.runEvents.publish(id, { type: 'run_status', runId: id, status: 'failed' })
     return this.get(userId, id)
   }
 
@@ -109,6 +125,7 @@ export class RunsService {
         where: { id },
         data: { status: 'failed', error: 'Checkpoint rejected by user', pendingCheckpoint: Prisma.JsonNull },
       })
+      await this.runEvents.publish(id, { type: 'run_status', runId: id, status: 'failed' })
     }
     return this.get(userId, id)
   }

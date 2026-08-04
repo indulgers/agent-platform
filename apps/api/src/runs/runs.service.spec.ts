@@ -3,10 +3,13 @@ import type { Queue } from 'bullmq'
 import { PrismaService } from '../prisma/prisma.service'
 import { ConversationsService } from '../conversations/conversations.service'
 import { RunsService } from './runs.service'
+import type { RunEventsService } from './run-events'
 import type { RunJobPayload } from './run-queue'
 
 /** No-op queue — these tests exercise persistence/ownership, not job execution. */
 const stubQueue = { add: async () => undefined } as unknown as Queue<RunJobPayload>
+/** No-op event bridge — no Redis in these tests. */
+const stubEvents = { publish: async () => undefined } as unknown as RunEventsService
 
 /**
  * Integration test at the persistence seam: RunsService against a real Postgres
@@ -18,7 +21,7 @@ const describeDb = process.env.DATABASE_URL ? describe : describe.skip
 describeDb('RunsService (integration — real Postgres)', () => {
   const prisma = new PrismaService()
   const conversations = new ConversationsService(prisma)
-  const runs = new RunsService(prisma, conversations, stubQueue)
+  const runs = new RunsService(prisma, conversations, stubQueue, stubEvents)
   let userA = ''
   let userB = ''
 
@@ -69,5 +72,15 @@ describeDb('RunsService (integration — real Postgres)', () => {
   it('rejects creating a Run against a conversation the user does not own', async () => {
     const convoA = await conversations.create(userA, 'a-owned')
     await expect(runs.create(userB, { goal: 'sneaky', conversationId: convoA.id })).rejects.toThrow()
+  })
+
+  it('fails a not-yet-executing Run directly when stopped (no job to observe the flag)', async () => {
+    const run = await runs.create(userA, { goal: 'stop me before execution' })
+    // Simulate the planning phase having produced a plan awaiting approval.
+    await prisma.run.update({ where: { id: run.id }, data: { status: 'awaiting_approval' } })
+
+    const stopped = await runs.interrupt(userA, run.id)
+    expect(stopped.status).toBe('failed')
+    expect(stopped.error).toMatch(/interrupt/i)
   })
 })
