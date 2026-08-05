@@ -2,34 +2,12 @@ import type { SseEvent } from '@agent-platform/shared'
 import { useAuthStore } from '@/stores/auth-store'
 
 /**
- * Consume an SSE stream from a POST endpoint. `EventSource` cannot do POST, so we use
- * fetch + ReadableStream and parse `data: …\n\n` framing by hand.
+ * Read an SSE body stream, parsing `data: …\n\n` framing by hand and invoking
+ * `onEvent` per frame. Shared by the POST (chat) and GET (run event stream)
+ * consumers below.
  */
-export async function consumeSse(
-  path: string,
-  body: unknown,
-  onEvent: (event: SseEvent) => void,
-  signal?: AbortSignal,
-): Promise<void> {
-  const token = useAuthStore.getState().token
-  const headers = new Headers({
-    'Content-Type': 'application/json',
-    Accept: 'text/event-stream',
-  })
-  if (token) headers.set('Authorization', `Bearer ${token}`)
-
-  const res = await fetch(`/api${path}`, {
-    method: 'POST',
-    headers,
-    body: JSON.stringify(body),
-    signal,
-  })
-  if (!res.ok || !res.body) {
-    if (res.status === 401) useAuthStore.getState().clear()
-    throw new Error(`SSE request failed: ${res.status} ${res.statusText}`)
-  }
-
-  const reader = res.body.getReader()
+async function pump(body: ReadableStream<Uint8Array>, onEvent: (event: SseEvent) => void): Promise<void> {
+  const reader = body.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
   while (true) {
@@ -57,4 +35,56 @@ export async function consumeSse(
       }
     }
   }
+}
+
+function authHeaders(extra?: Record<string, string>): Headers {
+  const token = useAuthStore.getState().token
+  const headers = new Headers({ Accept: 'text/event-stream', ...extra })
+  if (token) headers.set('Authorization', `Bearer ${token}`)
+  return headers
+}
+
+/** Guard an SSE fetch response, then drain it. Shared by the POST and GET consumers. */
+async function drain(res: Response, onEvent: (event: SseEvent) => void): Promise<void> {
+  if (!res.ok || !res.body) {
+    if (res.status === 401) useAuthStore.getState().clear()
+    throw new Error(`SSE request failed: ${res.status} ${res.statusText}`)
+  }
+  await pump(res.body, onEvent)
+}
+
+/**
+ * Consume an SSE stream from a POST endpoint. `EventSource` cannot do POST, so we use
+ * fetch + ReadableStream and parse `data: …\n\n` framing by hand.
+ */
+export async function consumeSse(
+  path: string,
+  body: unknown,
+  onEvent: (event: SseEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`/api${path}`, {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(body),
+    signal,
+  })
+  await drain(res, onEvent)
+}
+
+/**
+ * Consume an SSE stream from a GET endpoint (the run event stream). `EventSource`
+ * can't send the `Authorization` header, so we use fetch here too.
+ */
+export async function consumeSseGet(
+  path: string,
+  onEvent: (event: SseEvent) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  const res = await fetch(`/api${path}`, {
+    method: 'GET',
+    headers: authHeaders(),
+    signal,
+  })
+  await drain(res, onEvent)
 }
