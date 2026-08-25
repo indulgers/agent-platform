@@ -5,13 +5,13 @@ import { PrismaService } from '../prisma/prisma.service'
 import type { OAuthMetadata } from './oauth-metadata'
 import { TokenCrypto } from './token-crypto'
 
-type Registration = { id: string; clientId: string; clientSecret?: string }
+export type OAuthClientRegistration = { id: string; clientId: string; clientSecret?: string }
 
 @Injectable()
 export class OAuthClientRegistrationService {
   constructor(private readonly prisma: PrismaService, @Optional() private readonly cryptoInstance?: TokenCrypto) {}
 
-  async getOrCreate(providerId: string, callbackUrl: string, metadata: OAuthMetadata): Promise<Registration> {
+  async getOrCreate(providerId: string, callbackUrl: string, metadata: OAuthMetadata): Promise<OAuthClientRegistration> {
     const existing = await this.prisma.oAuthClientRegistration.findUnique({ where: { providerId_callbackUrl: { providerId, callbackUrl } } })
     if (existing) return this.registration(existing)
 
@@ -44,13 +44,13 @@ export class OAuthClientRegistrationService {
     }
   }
 
-  async byId(id: string): Promise<Registration> {
+  async byId(id: string): Promise<OAuthClientRegistration> {
     const registration = await this.prisma.oAuthClientRegistration.findUnique({ where: { id } })
     if (!registration) throw new Error(`OAuth client registration ${id} was not found`)
     return this.registration(registration)
   }
 
-  private registration(registration: { id: string; clientId: string; clientSecretEncrypted: string | null }): Registration {
+  private registration(registration: { id: string; clientId: string; clientSecretEncrypted: string | null }): OAuthClientRegistration {
     return { id: registration.id, clientId: registration.clientId, clientSecret: registration.clientSecretEncrypted ? this.crypto().decrypt(registration.clientSecretEncrypted) : undefined }
   }
 
