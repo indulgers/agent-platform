@@ -38,6 +38,8 @@ model Connector {
   status                ConnectorStatus @default(active)
   accessTokenEncrypted  String
   refreshTokenEncrypted String?
+  registrationId        String?
+  registration          OAuthClientRegistration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
   expiresAt             DateTime?
   createdAt             DateTime        @default(now())
   updatedAt             DateTime        @updatedAt
@@ -65,13 +67,15 @@ model OAuthClientRegistration {
   id                    String       @id @default(cuid())
   providerId            String
   callbackUrl           String
+  issuer                String?
   clientId              String
   clientSecretEncrypted String?
   createdAt             DateTime     @default(now())
   updatedAt             DateTime     @updatedAt
   oauthStates           OAuthState[]
+  connectors            Connector[]
 
-  @@unique([providerId, callbackUrl])
+  @@unique([providerId, callbackUrl, issuer])
 }
 
 model Conversation {

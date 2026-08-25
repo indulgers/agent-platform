@@ -1,4 +1,5 @@
 export interface OAuthMetadata {
+  issuer: string
   authorization_endpoint: string
   token_endpoint: string
   registration_endpoint?: string
@@ -14,7 +15,7 @@ export async function discoverOAuthMetadata(serverUrl: string): Promise<OAuthMet
   const response = await fetch(`${authorizationServer.replace(/\/$/, '')}/.well-known/oauth-authorization-server`)
   if (!response.ok) throw new Error(`OAuth authorization-server discovery failed (${response.status})`)
   const metadata = (await response.json()) as OAuthMetadata
-  if (!metadata.authorization_endpoint || !metadata.token_endpoint) throw new Error('OAuth metadata is missing required endpoints')
+  if (!metadata.issuer || !metadata.authorization_endpoint || !metadata.token_endpoint) throw new Error('OAuth metadata is missing required endpoints or issuer')
   return metadata
 }
 

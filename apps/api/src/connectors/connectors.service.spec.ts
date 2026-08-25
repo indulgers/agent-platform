@@ -25,7 +25,7 @@ function createService() {
 function stubOAuthDiscovery() {
   vi.stubGlobal('fetch', vi.fn()
     .mockResolvedValueOnce(new Response(JSON.stringify({ authorization_servers: ['https://auth.example.test'] })))
-    .mockResolvedValueOnce(new Response(JSON.stringify({ authorization_endpoint: 'https://auth.example.test/authorize', token_endpoint: 'https://auth.example.test/token', registration_endpoint: 'https://auth.example.test/register' }))))
+    .mockResolvedValueOnce(new Response(JSON.stringify({ issuer: 'https://auth.example.test', authorization_endpoint: 'https://auth.example.test/authorize', token_endpoint: 'https://auth.example.test/token', registration_endpoint: 'https://auth.example.test/register' }))))
 }
 
 function tokenRequest(fetch: ReturnType<typeof vi.fn>) {
@@ -80,17 +80,21 @@ describe('ConnectorsService', () => {
 
     await service.finishAuthorization('notion', 'state-1', 'authorization-code')
 
+    expect(prisma.connector.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({ registrationId: 'registration-1' }),
+      update: expect.objectContaining({ registrationId: 'registration-1' }),
+    }))
     const body = tokenRequest(fetch)
     expect(body.get('client_id')).toBe('original-client')
     expect(body.get('client_secret')).toBe('original-secret')
     expect(body.get('redirect_uri')).toBe(originalCallbackUrl)
   })
 
-  it('refreshes with the registration selected for the current callback URL', async () => {
+  it('refreshes with the original registration after callback configuration changes', async () => {
     const { prisma, registrations, service } = createService()
     const crypto = new TokenCrypto(process.env.CONNECTOR_ENCRYPTION_KEY!)
-    vi.mocked(prisma.connector.findUnique).mockResolvedValue({ id: 'connector-1', providerId: 'notion', status: 'active', accessTokenEncrypted: crypto.encrypt('old-access-token'), refreshTokenEncrypted: crypto.encrypt('refresh-token'), expiresAt: new Date(0) } as never)
-    vi.mocked(registrations.getOrCreate).mockResolvedValue({ id: 'registration-current', clientId: 'current-client', callbackUrl: currentCallbackUrl })
+    vi.mocked(prisma.connector.findUnique).mockResolvedValue({ id: 'connector-1', providerId: 'notion', status: 'active', registrationId: 'registration-original', accessTokenEncrypted: crypto.encrypt('old-access-token'), refreshTokenEncrypted: crypto.encrypt('refresh-token'), expiresAt: new Date(0) } as never)
+    vi.mocked(registrations.byId).mockResolvedValue({ id: 'registration-original', clientId: 'original-client', callbackUrl: originalCallbackUrl })
     vi.mocked(prisma.connector.update).mockResolvedValue({} as never)
     stubOAuthDiscovery()
     const fetch = vi.mocked(globalThis.fetch)
@@ -98,9 +102,24 @@ describe('ConnectorsService', () => {
 
     await expect(service.accessToken('user-1', 'notion')).resolves.toBe('fresh-access-token')
 
-    expect(registrations.getOrCreate).toHaveBeenCalledWith('notion', currentCallbackUrl, expect.objectContaining({ token_endpoint: 'https://auth.example.test/token' }))
+    expect(registrations.byId).toHaveBeenCalledWith('registration-original')
+    expect(registrations.getOrCreate).not.toHaveBeenCalled()
     const body = tokenRequest(fetch)
-    expect(body.get('client_id')).toBe('current-client')
+    expect(body.get('client_id')).toBe('original-client')
     expect(body.get('client_secret')).toBeNull()
+  })
+
+  it('requires reconnect before external calls when a legacy connector has no registration', async () => {
+    const { prisma, registrations, service } = createService()
+    const crypto = new TokenCrypto(process.env.CONNECTOR_ENCRYPTION_KEY!)
+    vi.mocked(prisma.connector.findUnique).mockResolvedValue({ id: 'connector-1', providerId: 'notion', status: 'active', registrationId: null, accessTokenEncrypted: crypto.encrypt('old-access-token'), refreshTokenEncrypted: crypto.encrypt('refresh-token'), expiresAt: new Date(0) } as never)
+    const fetch = vi.fn()
+    vi.stubGlobal('fetch', fetch)
+
+    await expect(service.accessToken('user-1', 'notion')).rejects.toThrow('reconnected')
+
+    expect(registrations.byId).not.toHaveBeenCalled()
+    expect(registrations.getOrCreate).not.toHaveBeenCalled()
+    expect(fetch).not.toHaveBeenCalled()
   })
 })

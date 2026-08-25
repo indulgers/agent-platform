@@ -5,14 +5,14 @@ import { PrismaService } from '../prisma/prisma.service'
 import type { OAuthMetadata } from './oauth-metadata'
 import { TokenCrypto } from './token-crypto'
 
-export type OAuthClientRegistration = { id: string; clientId: string; clientSecret?: string; callbackUrl: string }
+export type OAuthClientRegistration = { id: string; clientId: string; clientSecret?: string; callbackUrl: string; issuer?: string }
 
 @Injectable()
 export class OAuthClientRegistrationService {
   constructor(private readonly prisma: PrismaService, @Optional() private readonly cryptoInstance?: TokenCrypto) {}
 
   async getOrCreate(providerId: string, callbackUrl: string, metadata: OAuthMetadata): Promise<OAuthClientRegistration> {
-    const existing = await this.prisma.oAuthClientRegistration.findUnique({ where: { providerId_callbackUrl: { providerId, callbackUrl } } })
+    const existing = await this.prisma.oAuthClientRegistration.findUnique({ where: { providerId_callbackUrl_issuer: { providerId, callbackUrl, issuer: metadata.issuer } } })
     if (existing) return this.registration(existing)
 
     if (!metadata.registration_endpoint) throw new Error(`OAuth metadata for ${providerId} does not advertise a registration endpoint`)
@@ -34,11 +34,11 @@ export class OAuthClientRegistrationService {
     const clientSecretEncrypted = typeof registered.client_secret === 'string' && registered.client_secret ? this.crypto().encrypt(registered.client_secret) : null
 
     try {
-      const created = await this.prisma.oAuthClientRegistration.create({ data: { providerId, callbackUrl, clientId: registered.client_id, clientSecretEncrypted } })
+      const created = await this.prisma.oAuthClientRegistration.create({ data: { providerId, callbackUrl, issuer: metadata.issuer, clientId: registered.client_id, clientSecretEncrypted } })
       return this.registration(created)
     } catch (error) {
-      if (!(error instanceof Prisma.PrismaClientKnownRequestError) && (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'P2002')) throw error
-      const winner = await this.prisma.oAuthClientRegistration.findUnique({ where: { providerId_callbackUrl: { providerId, callbackUrl } } })
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error
+      const winner = await this.prisma.oAuthClientRegistration.findUnique({ where: { providerId_callbackUrl_issuer: { providerId, callbackUrl, issuer: metadata.issuer } } })
       if (!winner) throw error
       return this.registration(winner)
     }
@@ -50,8 +50,8 @@ export class OAuthClientRegistrationService {
     return this.registration(registration)
   }
 
-  private registration(registration: { id: string; clientId: string; clientSecretEncrypted: string | null; callbackUrl: string }): OAuthClientRegistration {
-    return { id: registration.id, clientId: registration.clientId, clientSecret: registration.clientSecretEncrypted ? this.crypto().decrypt(registration.clientSecretEncrypted) : undefined, callbackUrl: registration.callbackUrl }
+  private registration(registration: { id: string; clientId: string; clientSecretEncrypted: string | null; callbackUrl: string; issuer: string | null }): OAuthClientRegistration {
+    return { id: registration.id, clientId: registration.clientId, clientSecret: registration.clientSecretEncrypted ? this.crypto().decrypt(registration.clientSecretEncrypted) : undefined, callbackUrl: registration.callbackUrl, issuer: registration.issuer ?? undefined }
   }
 
   private crypto() {

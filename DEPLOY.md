@@ -111,6 +111,10 @@ for general API startup. The API registers its public Notion MCP OAuth client
 automatically on the first connection. Tokens are encrypted at rest; do not
 rotate the key without reconnecting users.
 
+Existing Notion MCP connector grants created before dynamic OAuth registration
+was deployed do not have a durable client-registration binding. Their users
+must reconnect after this deployment before the API can refresh those grants.
+
 At least one of `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY`.
 
 ### 6. First-time build + boot (manual)

@@ -48,7 +48,7 @@ export class ConnectorsService {
     const provider = this.provider(providerId)
     const registration = await this.registrations.byId(saved.registrationId)
     const tokens = await this.exchange(await discoverOAuthMetadata(provider.serverUrl), new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: registration.callbackUrl, code_verifier: this.crypto().decrypt(saved.pkceVerifierEncrypted) }), registration)
-    await this.prisma.connector.upsert({ where: { userId_providerId: { userId: saved.userId, providerId } }, create: this.tokenData(saved.userId, providerId, tokens), update: this.tokenData(saved.userId, providerId, tokens) })
+    await this.prisma.connector.upsert({ where: { userId_providerId: { userId: saved.userId, providerId } }, create: { ...this.tokenData(saved.userId, providerId, tokens), registrationId: saved.registrationId }, update: { ...this.tokenData(saved.userId, providerId, tokens), registrationId: saved.registrationId } })
   }
 
   async disconnect(userId: string, providerId: string) {
@@ -72,13 +72,13 @@ export class ConnectorsService {
     return refresh
   }
 
-  private async refresh(connector: { id: string; providerId: string; refreshTokenEncrypted: string | null }) {
+  private async refresh(connector: { id: string; providerId: string; refreshTokenEncrypted: string | null; registrationId: string | null }) {
     if (!connector.refreshTokenEncrypted) throw new UnauthorizedException('Notion needs to be reconnected')
+    if (!connector.registrationId) throw new UnauthorizedException('Notion needs to be reconnected because its OAuth client registration is unavailable')
     const provider = this.provider(connector.providerId)
     try {
-      const callbackUrl = this.callbackUrl(connector.providerId)
       const metadata = await discoverOAuthMetadata(provider.serverUrl)
-      const registration = await this.registrations.getOrCreate(connector.providerId, callbackUrl, metadata)
+      const registration = await this.registrations.byId(connector.registrationId)
       const tokens = await this.exchange(metadata, new URLSearchParams({ grant_type: 'refresh_token', refresh_token: this.crypto().decrypt(connector.refreshTokenEncrypted) }), registration)
       const data = this.tokenData('', connector.providerId, tokens)
       await this.prisma.connector.update({ where: { id: connector.id }, data: { ...data, userId: undefined } })
