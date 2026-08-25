@@ -1,4 +1,5 @@
 import { useAuthStore } from '@/stores/auth-store'
+import { refreshAccessToken } from '@/lib/auth'
 
 export class ApiError extends Error {
   constructor(
@@ -11,12 +12,23 @@ export class ApiError extends Error {
 }
 
 export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const token = useAuthStore.getState().token
-  const headers = new Headers(init.headers)
-  headers.set('Content-Type', 'application/json')
-  if (token) headers.set('Authorization', `Bearer ${token}`)
+  const send = () => {
+    const token = useAuthStore.getState().token
+    const headers = new Headers(init.headers)
+    headers.set('Content-Type', 'application/json')
+    if (token) headers.set('Authorization', `Bearer ${token}`)
+    // credentials: send the httpOnly refresh cookie on same-site requests.
+    return fetch(`/api${path}`, { ...init, headers, credentials: 'include' })
+  }
 
-  const res = await fetch(`/api${path}`, { ...init, headers })
+  let res = await send()
+  // Access token expired → silently refresh once and retry. Auth endpoints are
+  // excluded so a bad login/refresh doesn't recurse into another refresh.
+  if (res.status === 401 && !path.startsWith('/auth/')) {
+    const refreshed = await refreshAccessToken()
+    if (refreshed) res = await send()
+  }
+
   if (!res.ok) {
     let body: unknown = undefined
     try {

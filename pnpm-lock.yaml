@@ -71,6 +71,9 @@ importers:
       class-validator:
         specifier: ^0.14.1
         version: 0.14.4
+      cookie-parser:
+        specifier: ^1.4.7
+        version: 1.4.7
       dotenv:
         specifier: ^16.4.7
         version: 16.6.1
@@ -111,6 +114,9 @@ importers:
       '@nestjs/testing':
         specifier: ^10.4.15
         version: 10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@10.4.22)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/platform-express@10.4.22(@nestjs/common@10.4.22(class-transformer@0.5.1)(class-validator@0.14.4)(reflect-metadata@0.2.2)(rxjs@7.8.2))(@nestjs/core@10.4.22))
+      '@types/cookie-parser':
+        specifier: ^1.4.10
+        version: 1.4.10(@types/express@5.0.6)
       '@types/express':
         specifier: ^5.0.0
         version: 5.0.6
@@ -1357,6 +1363,11 @@ packages:
   '@types/connect@3.4.38':
     resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
 
+  '@types/cookie-parser@1.4.10':
+    resolution: {integrity: sha512-B4xqkqfZ8Wek+rCOeRxsjMS9OgvzebEzzLYw7NHYuvzb7IdxOkI0ZHGgeEBX4PUM7QGVvNSK60T3OvWj3YfBRg==}
+    peerDependencies:
+      '@types/express': '*'
+
   '@types/d3-array@3.2.2':
     resolution: {integrity: sha512-hOLWVbm7uRza0BYXpIIW5pxfrKe0W+D5lrFiAEYR+pb6w3N2SwSMaJbXdUfSEv+dT4MfHBLtn5js0LAWaO6otw==}
 
@@ -1990,6 +2001,13 @@ packages:
 
   cookie-es@3.1.1:
     resolution: {integrity: sha512-UaXxwISYJPTr9hwQxMFYZ7kNhSXboMXP+Z3TRX6f1/NyaGPfuNUZOWP1pUEb75B2HjfklIYLVRfWiFZJyC6Npg==}
+
+  cookie-parser@1.4.7:
+    resolution: {integrity: sha512-nGUvgXnotP3BsjiLX2ypbQnWoGUPIIfHQNZkkC668ntrzGWEZVW70HDEB1qnNGMicPje6EttlIgzo51YSwNQGw==}
+    engines: {node: '>= 0.8.0'}
+
+  cookie-signature@1.0.6:
+    resolution: {integrity: sha512-QADzlaHc8icV8I7vbaJXJwod9HWYp8uCqf1xa4OfNu1T7JVxQIrUgOWtHdNDtPiywmFbiS12VjotIXLrKM3orQ==}
 
   cookie-signature@1.0.7:
     resolution: {integrity: sha512-NXdYc3dLr47pBkpUCHtKSwIOQXLVn8dZEuywboCOJY/osA0wFSLlSawr3KN8qXJEyX66FcONTH8EIlVuK0yyFA==}
@@ -5245,6 +5263,10 @@ snapshots:
     dependencies:
       '@types/node': 22.19.19
 
+  '@types/cookie-parser@1.4.10(@types/express@5.0.6)':
+    dependencies:
+      '@types/express': 5.0.6
+
   '@types/d3-array@3.2.2': {}
 
   '@types/d3-axis@3.0.6':
@@ -5974,6 +5996,13 @@ snapshots:
   convert-source-map@2.0.0: {}
 
   cookie-es@3.1.1: {}
+
+  cookie-parser@1.4.7:
+    dependencies:
+      cookie: 0.7.2
+      cookie-signature: 1.0.6
+
+  cookie-signature@1.0.6: {}
 
   cookie-signature@1.0.7: {}
 
