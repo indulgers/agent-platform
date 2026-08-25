@@ -47,7 +47,7 @@ export class ConnectorsService {
     if (!code) throw new BadRequestException('OAuth callback did not include an authorization code')
     const provider = this.provider(providerId)
     const registration = await this.registrations.byId(saved.registrationId)
-    const tokens = await this.exchange(await discoverOAuthMetadata(provider.serverUrl), new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: this.callbackUrl(providerId), code_verifier: this.crypto().decrypt(saved.pkceVerifierEncrypted) }), registration)
+    const tokens = await this.exchange(await discoverOAuthMetadata(provider.serverUrl), new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: registration.callbackUrl, code_verifier: this.crypto().decrypt(saved.pkceVerifierEncrypted) }), registration)
     await this.prisma.connector.upsert({ where: { userId_providerId: { userId: saved.userId, providerId } }, create: this.tokenData(saved.userId, providerId, tokens), update: this.tokenData(saved.userId, providerId, tokens) })
   }
 

@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service'
 import type { OAuthMetadata } from './oauth-metadata'
 import { TokenCrypto } from './token-crypto'
 
-export type OAuthClientRegistration = { id: string; clientId: string; clientSecret?: string }
+export type OAuthClientRegistration = { id: string; clientId: string; clientSecret?: string; callbackUrl: string }
 
 @Injectable()
 export class OAuthClientRegistrationService {
@@ -50,8 +50,8 @@ export class OAuthClientRegistrationService {
     return this.registration(registration)
   }
 
-  private registration(registration: { id: string; clientId: string; clientSecretEncrypted: string | null }): OAuthClientRegistration {
-    return { id: registration.id, clientId: registration.clientId, clientSecret: registration.clientSecretEncrypted ? this.crypto().decrypt(registration.clientSecretEncrypted) : undefined }
+  private registration(registration: { id: string; clientId: string; clientSecretEncrypted: string | null; callbackUrl: string }): OAuthClientRegistration {
+    return { id: registration.id, clientId: registration.clientId, clientSecret: registration.clientSecretEncrypted ? this.crypto().decrypt(registration.clientSecretEncrypted) : undefined, callbackUrl: registration.callbackUrl }
   }
 
   private crypto() {

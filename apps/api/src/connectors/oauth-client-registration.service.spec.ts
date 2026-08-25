@@ -33,7 +33,7 @@ describe('OAuthClientRegistrationService', () => {
     })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ client_id: 'registered-client', client_secret: 'registered-secret' }), { status: 201 })))
 
-    await expect(service.getOrCreate('notion', callbackUrl, metadata)).resolves.toEqual({ id: 'registration-1', clientId: 'registered-client', clientSecret: 'registered-secret' })
+    await expect(service.getOrCreate('notion', callbackUrl, metadata)).resolves.toEqual({ id: 'registration-1', clientId: 'registered-client', clientSecret: 'registered-secret', callbackUrl })
     expect(prisma.oAuthClientRegistration.create).toHaveBeenCalledWith({
       data: expect.objectContaining({ providerId: 'notion', callbackUrl, clientId: 'registered-client' }),
     })
@@ -109,7 +109,7 @@ describe('OAuthClientRegistrationService', () => {
     vi.mocked(prisma.oAuthClientRegistration.create).mockRejectedValue({ code: 'P2002' })
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ client_id: 'registered-client' }), { status: 201 })))
 
-    await expect(service.getOrCreate('notion', callbackUrl, metadata)).resolves.toEqual({ id: 'registration-2', clientId: 'winner-client', clientSecret: undefined })
+    await expect(service.getOrCreate('notion', callbackUrl, metadata)).resolves.toEqual({ id: 'registration-2', clientId: 'winner-client', clientSecret: undefined, callbackUrl })
   })
 
   it('loads a registration by its durable identity', async () => {
@@ -118,7 +118,7 @@ describe('OAuthClientRegistrationService', () => {
       id: 'registration-1', providerId: 'notion', callbackUrl, clientId: 'registered-client', clientSecretEncrypted: null, createdAt: new Date(), updatedAt: new Date(),
     })
 
-    await expect(service.byId('registration-1')).resolves.toEqual({ id: 'registration-1', clientId: 'registered-client', clientSecret: undefined })
+    await expect(service.byId('registration-1')).resolves.toEqual({ id: 'registration-1', clientId: 'registered-client', clientSecret: undefined, callbackUrl })
     expect(prisma.oAuthClientRegistration.findUnique).toHaveBeenCalledWith({ where: { id: 'registration-1' } })
   })
 })
