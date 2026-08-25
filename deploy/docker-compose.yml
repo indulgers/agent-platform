@@ -130,7 +130,6 @@ services:
       EMBEDDING_MODEL: ${EMBEDDING_MODEL:-text-embedding-3-small}
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost}
       CONNECTOR_CALLBACK_URL: ${CONNECTOR_CALLBACK_URL:-}
-      NOTION_MCP_CLIENT_ID: ${NOTION_MCP_CLIENT_ID:-}
       CONNECTOR_ENCRYPTION_KEY: ${CONNECTOR_ENCRYPTION_KEY:-}
       # S3 / MinIO — internal endpoint for backend calls, public endpoint the
       # browser PUTs presigned URLs against. In single-host prod they're the
