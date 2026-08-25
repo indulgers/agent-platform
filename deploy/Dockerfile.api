@@ -61,7 +61,6 @@ ENV NODE_ENV=production
 COPY --from=build /deploy-api ./
 
 EXPOSE 3000
-# Just boot. Schema sync (`prisma db push`) is done manually outside the
-# container — see DEPLOY.md. The prisma CLI is in the image so the user can
-# run `docker compose exec api node_modules/.bin/prisma db push` when needed.
-CMD ["node", "dist/main.js"]
+# Apply committed migrations before Nest starts. `migrate deploy` is idempotent,
+# so restarts with no pending migrations complete without changing the schema.
+CMD ["sh", "-c", "node_modules/.bin/prisma migrate deploy && exec node dist/main.js"]

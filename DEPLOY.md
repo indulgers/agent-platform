@@ -120,12 +120,22 @@ docker compose --env-file .env -f deploy/docker-compose.yml ps
 # all services should be 'healthy' / 'running'
 ```
 
-Apply the Prisma schema once (and every time the schema changes):
+The API applies committed Prisma migrations before Nest starts. Schema changes
+must therefore be introduced as a reviewed migration and committed with the
+schema; do not use `prisma db push` against production.
+
+This repository's first migration is a baseline for databases created before
+migrations were introduced. If this VPS already has an `agent_platform`
+database created with `db push`, mark that baseline as applied once before the
+first deployment containing migrations:
 
 ```bash
-docker compose --env-file .env -f deploy/docker-compose.yml exec api \
-  node node_modules/.bin/prisma db push --schema=prisma/schema.prisma
+docker compose --env-file .env -f deploy/docker-compose.yml run --rm api \
+  node_modules/.bin/prisma migrate resolve --applied 20260801000000_baseline
 ```
+
+Fresh databases need no manual migration step: the API startup runs the
+baseline and all later migrations automatically.
 
 Hit it:
 

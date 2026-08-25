@@ -5,7 +5,7 @@ export interface OAuthMetadata {
 }
 
 export async function discoverOAuthMetadata(serverUrl: string): Promise<OAuthMetadata> {
-  const protectedResource = await fetch(`${serverUrl.replace(/\/$/, '')}/.well-known/oauth-protected-resource`)
+  const protectedResource = await fetch(protectedResourceMetadataUrl(serverUrl))
   if (!protectedResource.ok) throw new Error(`OAuth protected-resource discovery failed (${protectedResource.status})`)
   const resource = (await protectedResource.json()) as { authorization_servers?: string[] }
   const authorizationServer = resource.authorization_servers?.[0]
@@ -15,4 +15,10 @@ export async function discoverOAuthMetadata(serverUrl: string): Promise<OAuthMet
   const metadata = (await response.json()) as OAuthMetadata
   if (!metadata.authorization_endpoint || !metadata.token_endpoint) throw new Error('OAuth metadata is missing required endpoints')
   return metadata
+}
+
+function protectedResourceMetadataUrl(serverUrl: string) {
+  const resource = new URL(serverUrl)
+  const path = resource.pathname.replace(/^\/+/, '')
+  return `${resource.origin}/.well-known/oauth-protected-resource${path ? `/${path}` : ''}${resource.search}`
 }
