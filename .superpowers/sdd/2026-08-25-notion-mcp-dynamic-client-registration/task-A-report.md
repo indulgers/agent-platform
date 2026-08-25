@@ -89,3 +89,50 @@ module and intentionally exercised tool/JSON error paths; it exits successfully.
 None within Task A. Authorization-state linkage and use of the durable client
 in authorization, callback, and refresh flows are intentionally deferred to the
 subsequent tasks.
+
+## Review fix: relation semantics and registration-response validation
+
+### Changes
+
+- Declared `onDelete: Restrict` explicitly on `OAuthState.registration`, matching
+  the migration's `ON DELETE RESTRICT` foreign key.
+- Added focused service cases for a non-2xx registration response, absent and
+  empty `client_id`, and an empty `client_secret`. The pre-existing persistence
+  case continues to verify that a non-empty secret is encrypted and decryptable.
+
+### RED/GREEN evidence
+
+The added tests were first run with their response-validation and empty-secret
+behaviors absent. The focused run failed in all intended cases:
+
+```text
+expected OAuth client registration failed (503) ... received invalid JSON
+expected OAuth client registration response did not include client_id ...
+received Cannot read properties of undefined
+expected encrypted empty secret to be null ... received encrypted value
+```
+
+After restoring the minimal checks and adding the explicit relation action:
+
+```text
+pnpm --filter @agent-platform/api exec vitest run \
+  src/connectors/oauth-client-registration.service.spec.ts \
+  src/connectors/oauth-metadata.spec.ts
+Test Files  2 passed (2)
+Tests       10 passed (10)
+
+DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/agent_platform \
+  pnpm --filter @agent-platform/api exec prisma validate
+The schema at prisma/schema.prisma is valid
+
+pnpm --filter @agent-platform/api typecheck
+PASS
+```
+
+### Self-review and concerns
+
+- Non-2xx responses are rejected before JSON parsing or persistence.
+- An absent/empty client ID cannot reach the Prisma create call.
+- Empty secrets remain `null`; the existing non-empty-secret case verifies the
+  persisted envelope decrypts to the original secret.
+- No concerns within this review-fix scope.

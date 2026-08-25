@@ -53,7 +53,7 @@ model OAuthState {
   providerId            String
   pkceVerifierEncrypted String
   registrationId        String?
-  registration          OAuthClientRegistration? @relation(fields: [registrationId], references: [id])
+  registration          OAuthClientRegistration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
   expiresAt             DateTime
   consumedAt            DateTime?
   createdAt             DateTime                 @default(now())

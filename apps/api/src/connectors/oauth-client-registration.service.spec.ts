@@ -58,6 +58,37 @@ describe('OAuthClientRegistrationService', () => {
     })
   })
 
+  it('rejects a failed registration response', async () => {
+    const { prisma, service } = createService()
+    vi.mocked(prisma.oAuthClientRegistration.findUnique).mockResolvedValue(null)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('registration unavailable', { status: 503 })))
+
+    await expect(service.getOrCreate('notion', callbackUrl, metadata)).rejects.toThrow('OAuth client registration failed (503): registration unavailable')
+    expect(prisma.oAuthClientRegistration.create).not.toHaveBeenCalled()
+  })
+
+  it.each([{}, { client_id: '' }])('rejects a registration response without a usable client ID: %j', async responseBody => {
+    const { prisma, service } = createService()
+    vi.mocked(prisma.oAuthClientRegistration.findUnique).mockResolvedValue(null)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify(responseBody), { status: 201 })))
+
+    await expect(service.getOrCreate('notion', callbackUrl, metadata)).rejects.toThrow('OAuth client registration response did not include client_id')
+    expect(prisma.oAuthClientRegistration.create).not.toHaveBeenCalled()
+  })
+
+  it('persists an empty dynamic client secret as null', async () => {
+    const { prisma, service } = createService()
+    vi.mocked(prisma.oAuthClientRegistration.findUnique).mockResolvedValue(null)
+    vi.mocked(prisma.oAuthClientRegistration.create).mockResolvedValue({
+      id: 'registration-1', providerId: 'notion', callbackUrl, clientId: 'registered-client', clientSecretEncrypted: null, createdAt: new Date(), updatedAt: new Date(),
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ client_id: 'registered-client', client_secret: '' }), { status: 201 })))
+
+    await service.getOrCreate('notion', callbackUrl, metadata)
+
+    expect(vi.mocked(prisma.oAuthClientRegistration.create).mock.calls[0]![0].data.clientSecretEncrypted).toBeNull()
+  })
+
   it('reuses a durable registration without calling the registration endpoint', async () => {
     const { prisma, service } = createService()
     vi.mocked(prisma.oAuthClientRegistration.findUnique).mockResolvedValue({
