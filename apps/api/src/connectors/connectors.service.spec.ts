@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { PrismaService } from '../prisma/prisma.service'
+import { loadEnv } from '../config/env'
 import { ConnectorsService } from './connectors.service'
 import { OAuthClientRegistrationService } from './oauth-client-registration.service'
 import { TokenCrypto } from './token-crypto'
@@ -34,6 +35,18 @@ function tokenRequest(fetch: ReturnType<typeof vi.fn>) {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('ConnectorsService', () => {
+  it('starts authorization with the dynamically registered client when no manual client ID is configured', async () => {
+    delete process.env.NOTION_MCP_CLIENT_ID
+    const { registrations, service } = createService()
+    stubOAuthDiscovery()
+    vi.mocked(registrations.getOrCreate).mockResolvedValue({ id: 'registration-1', clientId: 'dynamically-registered-client', callbackUrl: currentCallbackUrl })
+
+    const result = await service.startAuthorization('user-1', 'notion')
+
+    expect(new URL(result.url).searchParams.get('client_id')).toBe('dynamically-registered-client')
+    expect(loadEnv()).not.toHaveProperty('NOTION_MCP_CLIENT_ID')
+  })
+
   it('binds a new authorization state to the registered OAuth client', async () => {
     const { prisma, registrations, service } = createService()
     stubOAuthDiscovery()
