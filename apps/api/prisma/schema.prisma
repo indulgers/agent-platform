@@ -47,16 +47,31 @@ model Connector {
 }
 
 model OAuthState {
-  state                String   @id
-  userId               String
-  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  providerId           String
+  state                 String                   @id
+  userId                String
+  user                  User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerId            String
   pkceVerifierEncrypted String
-  expiresAt            DateTime
-  consumedAt           DateTime?
-  createdAt            DateTime @default(now())
+  registrationId        String?
+  registration          OAuthClientRegistration? @relation(fields: [registrationId], references: [id])
+  expiresAt             DateTime
+  consumedAt            DateTime?
+  createdAt             DateTime                 @default(now())
 
   @@index([expiresAt])
+}
+
+model OAuthClientRegistration {
+  id                    String       @id @default(cuid())
+  providerId            String
+  callbackUrl           String
+  clientId              String
+  clientSecretEncrypted String?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  oauthStates           OAuthState[]
+
+  @@unique([providerId, callbackUrl])
 }
 
 model Conversation {

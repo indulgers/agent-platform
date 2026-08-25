@@ -1,6 +1,7 @@
 export interface OAuthMetadata {
   authorization_endpoint: string
   token_endpoint: string
+  registration_endpoint?: string
   scopes_supported?: string[]
 }
 
