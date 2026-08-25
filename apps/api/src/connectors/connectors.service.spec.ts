@@ -8,11 +8,14 @@ import { TokenCrypto } from './token-crypto'
 const currentCallbackUrl = 'https://current.example.test/callback/notion'
 const originalCallbackUrl = 'https://previous.example.test/callback/notion'
 
-function createService() {
+function createService(options: { connectorEncryptionKey?: string } = {}) {
   process.env.DATABASE_URL = 'postgresql://test:test@localhost:5432/test'
   process.env.REDIS_URL = 'redis://localhost:6379'
   process.env.JWT_SECRET = 'test-secret-that-is-at-least-sixteen-characters'
-  process.env.CONNECTOR_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64')
+  if ('connectorEncryptionKey' in options) {
+    if (options.connectorEncryptionKey === undefined) delete process.env.CONNECTOR_ENCRYPTION_KEY
+    else process.env.CONNECTOR_ENCRYPTION_KEY = options.connectorEncryptionKey
+  } else process.env.CONNECTOR_ENCRYPTION_KEY = Buffer.alloc(32, 7).toString('base64')
   process.env.CONNECTOR_CALLBACK_URL = currentCallbackUrl
   const prisma = {
     connector: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn(), upsert: vi.fn(), deleteMany: vi.fn(), update: vi.fn() },
@@ -45,6 +48,29 @@ describe('ConnectorsService', () => {
 
     expect(new URL(result.url).searchParams.get('client_id')).toBe('dynamically-registered-client')
     expect(loadEnv()).not.toHaveProperty('NOTION_MCP_CLIENT_ID')
+  })
+
+  it('reports service unavailable before contacting OAuth when the connector encryption key is missing', async () => {
+    const savedKey = process.env.CONNECTOR_ENCRYPTION_KEY
+    const { registrations, service } = createService({ connectorEncryptionKey: undefined })
+
+    await expect(service.startAuthorization('user-1', 'notion')).rejects.toMatchObject({
+      status: 503,
+      message: 'Connector encryption is unavailable. An administrator must configure CONNECTOR_ENCRYPTION_KEY.',
+    })
+    expect(registrations.getOrCreate).not.toHaveBeenCalled()
+
+    process.env.CONNECTOR_ENCRYPTION_KEY = savedKey
+  })
+
+  it('reports service unavailable before contacting OAuth when the connector encryption key is malformed', async () => {
+    const { registrations, service } = createService({ connectorEncryptionKey: `${Buffer.alloc(32, 7).toString('base64')}!not-base64!` })
+
+    await expect(service.startAuthorization('user-1', 'notion')).rejects.toMatchObject({
+      status: 503,
+      message: 'Connector encryption is unavailable. An administrator must configure CONNECTOR_ENCRYPTION_KEY.',
+    })
+    expect(registrations.getOrCreate).not.toHaveBeenCalled()
   })
 
   it('binds a new authorization state to the registered OAuth client', async () => {

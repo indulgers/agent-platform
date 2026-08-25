@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException, UnauthorizedExcepti
 import { createHash, randomBytes } from 'node:crypto'
 import { PrismaService } from '../prisma/prisma.service'
 import { loadEnv } from '../config/env'
-import { TokenCrypto } from './token-crypto'
+import { createConnectorTokenCrypto } from './token-crypto'
 import { discoverOAuthMetadata, type OAuthMetadata } from './oauth-metadata'
 import { OAuthClientRegistrationService, type OAuthClientRegistration } from './oauth-client-registration.service'
 import { getRemoteMcpProvider, listRemoteMcpProviders } from './providers/registry'
@@ -25,6 +25,7 @@ export class ConnectorsService {
   }
 
   async startAuthorization(userId: string, providerId: string) {
+    this.crypto()
     const provider = this.provider(providerId)
     const callbackUrl = this.callbackUrl(providerId)
     const metadata = await discoverOAuthMetadata(provider.serverUrl)
@@ -102,6 +103,6 @@ export class ConnectorsService {
 
   private tokenData(userId: string, providerId: string, tokens: Tokens) { return { userId, providerId, status: 'active' as const, accessTokenEncrypted: this.crypto().encrypt(tokens.access_token), refreshTokenEncrypted: tokens.refresh_token ? this.crypto().encrypt(tokens.refresh_token) : undefined, expiresAt: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null } }
   private provider(id: string) { const provider = getRemoteMcpProvider(id); if (!provider) throw new NotFoundException(`Unknown connector provider: ${id}`); return provider }
-  private crypto() { if (!this.env.CONNECTOR_ENCRYPTION_KEY) throw new Error('CONNECTOR_ENCRYPTION_KEY is required for connectors'); return new TokenCrypto(this.env.CONNECTOR_ENCRYPTION_KEY) }
+  private crypto() { return createConnectorTokenCrypto(this.env.CONNECTOR_ENCRYPTION_KEY) }
   private callbackUrl(providerId: string) { return this.env.CONNECTOR_CALLBACK_URL ?? `${this.env.WEB_ORIGIN.replace(/\/$/, '')}/api/connectors/callback/${providerId}` }
 }

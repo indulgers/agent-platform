@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client'
 import { loadEnv } from '../config/env'
 import { PrismaService } from '../prisma/prisma.service'
 import type { OAuthMetadata } from './oauth-metadata'
-import { TokenCrypto } from './token-crypto'
+import { createConnectorTokenCrypto, TokenCrypto } from './token-crypto'
 
 export type OAuthClientRegistration = { id: string; clientId: string; clientSecret?: string; callbackUrl: string; issuer?: string }
 
@@ -56,8 +56,6 @@ export class OAuthClientRegistrationService {
 
   private crypto() {
     if (this.cryptoInstance) return this.cryptoInstance
-    const key = loadEnv().CONNECTOR_ENCRYPTION_KEY
-    if (!key) throw new Error('CONNECTOR_ENCRYPTION_KEY is required for connectors')
-    return new TokenCrypto(key)
+    return createConnectorTokenCrypto(loadEnv().CONNECTOR_ENCRYPTION_KEY)
   }
 }
