@@ -10,6 +10,7 @@ import { AgentsModule } from './agents/agents.module'
 import { MemoryModule } from './memory/memory.module'
 import { UploadsModule } from './uploads/uploads.module'
 import { HealthController } from './common/health.controller'
+import { ConnectorsModule } from './connectors/connectors.module'
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { HealthController } from './common/health.controller'
     RunsModule,
     AgentsModule,
     MemoryModule,
+    ConnectorsModule,
   ],
   controllers: [HealthController],
 })

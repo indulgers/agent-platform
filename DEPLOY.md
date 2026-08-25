@@ -102,6 +102,12 @@ without:
 | `S3_PUBLIC_ENDPOINT` | `http://<your-vps-ip>:9100` |
 | `WEB_ORIGIN` | `http://<your-vps-ip>` |
 
+For Notion MCP, register an OAuth client with callback URL
+`https://<your-domain>/api/connectors/callback/notion`, then set
+`NOTION_MCP_CLIENT_ID`, `CONNECTOR_CALLBACK_URL`, and a fresh
+`CONNECTOR_ENCRYPTION_KEY` generated with `openssl rand -base64 32`. Tokens
+are encrypted at rest; do not rotate the key without reconnecting users.
+
 At least one of `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY`.
 
 ### 6. First-time build + boot (manual)

@@ -11,9 +11,10 @@ import { EnvProviderResolver, PROVIDER_RESOLVER } from './provider-resolver'
 import { McpService } from './mcp/mcp.service'
 import { ConversationsModule } from '../conversations/conversations.module'
 import { MemoryModule } from '../memory/memory.module'
+import { ConnectorsModule } from '../connectors/connectors.module'
 
 @Module({
-  imports: [ConversationsModule, MemoryModule],
+  imports: [ConversationsModule, MemoryModule, ConnectorsModule],
   providers: [
     AgentsService,
     AgentRunner,

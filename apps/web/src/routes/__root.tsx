@@ -46,6 +46,12 @@ function RootLayout() {
               >
                 Runs
               </Link>
+              <Link
+                to="/settings/integrations"
+                className="px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-[color:var(--color-surface-2)] transition-colors [&.active]:text-foreground [&.active]:bg-[color:var(--color-surface-2)]"
+              >
+                Settings
+              </Link>
             </nav>
           )}
 

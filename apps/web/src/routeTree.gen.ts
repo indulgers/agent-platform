@@ -14,6 +14,7 @@ import { Route as RegisterRouteImport } from './routes/register'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as RunsIndexRouteImport } from './routes/runs.index'
+import { Route as SettingsIntegrationsRouteImport } from './routes/settings.integrations'
 import { Route as RunsIdRouteImport } from './routes/runs.$id'
 import { Route as ChatIdRouteImport } from './routes/chat.$id'
 
@@ -42,6 +43,11 @@ const RunsIndexRoute = RunsIndexRouteImport.update({
   path: '/',
   getParentRoute: () => RunsRoute,
 } as any)
+const SettingsIntegrationsRoute = SettingsIntegrationsRouteImport.update({
+  id: '/settings/integrations',
+  path: '/settings/integrations',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const RunsIdRoute = RunsIdRouteImport.update({
   id: '/$id',
   path: '/$id',
@@ -60,6 +66,7 @@ export interface FileRoutesByFullPath {
   '/runs': typeof RunsRouteWithChildren
   '/chat/$id': typeof ChatIdRoute
   '/runs/$id': typeof RunsIdRoute
+  '/settings/integrations': typeof SettingsIntegrationsRoute
   '/runs/': typeof RunsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -68,6 +75,7 @@ export interface FileRoutesByTo {
   '/register': typeof RegisterRoute
   '/chat/$id': typeof ChatIdRoute
   '/runs/$id': typeof RunsIdRoute
+  '/settings/integrations': typeof SettingsIntegrationsRoute
   '/runs': typeof RunsIndexRoute
 }
 export interface FileRoutesById {
@@ -78,6 +86,7 @@ export interface FileRoutesById {
   '/runs': typeof RunsRouteWithChildren
   '/chat/$id': typeof ChatIdRoute
   '/runs/$id': typeof RunsIdRoute
+  '/settings/integrations': typeof SettingsIntegrationsRoute
   '/runs/': typeof RunsIndexRoute
 }
 export interface FileRouteTypes {
@@ -89,9 +98,17 @@ export interface FileRouteTypes {
     | '/runs'
     | '/chat/$id'
     | '/runs/$id'
+    | '/settings/integrations'
     | '/runs/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/register' | '/chat/$id' | '/runs/$id' | '/runs'
+  to:
+    | '/'
+    | '/login'
+    | '/register'
+    | '/chat/$id'
+    | '/runs/$id'
+    | '/settings/integrations'
+    | '/runs'
   id:
     | '__root__'
     | '/'
@@ -100,6 +117,7 @@ export interface FileRouteTypes {
     | '/runs'
     | '/chat/$id'
     | '/runs/$id'
+    | '/settings/integrations'
     | '/runs/'
   fileRoutesById: FileRoutesById
 }
@@ -109,6 +127,7 @@ export interface RootRouteChildren {
   RegisterRoute: typeof RegisterRoute
   RunsRoute: typeof RunsRouteWithChildren
   ChatIdRoute: typeof ChatIdRoute
+  SettingsIntegrationsRoute: typeof SettingsIntegrationsRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -148,6 +167,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof RunsIndexRouteImport
       parentRoute: typeof RunsRoute
     }
+    '/settings/integrations': {
+      id: '/settings/integrations'
+      path: '/settings/integrations'
+      fullPath: '/settings/integrations'
+      preLoaderRoute: typeof SettingsIntegrationsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/runs/$id': {
       id: '/runs/$id'
       path: '/$id'
@@ -183,6 +209,7 @@ const rootRouteChildren: RootRouteChildren = {
   RegisterRoute: RegisterRoute,
   RunsRoute: RunsRouteWithChildren,
   ChatIdRoute: ChatIdRoute,
+  SettingsIntegrationsRoute: SettingsIntegrationsRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

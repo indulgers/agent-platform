@@ -13,6 +13,7 @@ import { toChatMessage } from './chat-message.mapper'
 import { calcCost, findModel } from './models.registry'
 import { S3Service } from '../uploads/s3.service'
 import { loadEnv } from '../config/env'
+import { RemoteMcpService } from '../connectors/remote-mcp.service'
 
 /** Snapshot of an attachment as persisted on Message.attachments. */
 export interface PersistedAttachment {
@@ -28,6 +29,7 @@ const SYSTEM_PROMPT = `You are agent-platform, a helpful multi-tool task agent.
 - Tools available: http_fetch (read public URLs), vector_search (recall the user's prior memories).
 - After you finish, write a concise, direct answer for the user.
 - Never invent tool results; only use what tools actually returned.
+- Call notion_create_page only when the user explicitly asks to save the answer to Notion. When it succeeds, include its returned page URL in the final answer.
 - Format responses with markdown when it improves readability: fenced code blocks
   with language hints, lists, tables, bold for key terms, links where appropriate.
   Do not over-format short single-sentence answers.`
@@ -48,6 +50,7 @@ export class AgentsService {
     private readonly deepseek: DeepSeekProvider,
     private readonly memory: MemoryService,
     private readonly s3: S3Service,
+    private readonly remoteMcp: RemoteMcpService,
   ) {}
 
   /**
@@ -150,7 +153,7 @@ export class AgentsService {
 
     let result
     try {
-      result = await this.runner.run({
+      result = await this.remoteMcp.withUserTools(args.userId, tools => this.runner.run({
         provider,
         model,
         systemPrompt: SYSTEM_PROMPT,
@@ -162,7 +165,7 @@ export class AgentsService {
         maxTokens: this.env.AGENT_MAX_TOKENS,
         emit: args.emit,
         signal: args.signal,
-      })
+      }, undefined, tools))
     } catch (err) {
       const aborted = args.signal?.aborted || isAbortError(err)
       if (!aborted) {
@@ -174,6 +177,18 @@ export class AgentsService {
       // Aborted: don't re-emit (client already gone)
       args.emit({ type: 'done' })
       return { userMessageId: userMessageRow.id, assistantMessageIds: [], aborted: true }
+    }
+
+    // The Notion tool returns the created-page URL as structured data. Keep the
+    // user-facing promise even if a model forgets to repeat that URL in prose.
+    const notionUrl = result.newMessages
+      .filter(message => message.role === 'tool')
+      .map(message => extractNotionUrl(message.content))
+      .find(Boolean)
+    if (notionUrl && !result.finalAssistantText.includes(notionUrl)) {
+      result.finalAssistantText = `${result.finalAssistantText}\n\nSaved to Notion: ${notionUrl}`.trim()
+      const finalAssistant = [...result.newMessages].reverse().find(message => message.role === 'assistant')
+      if (finalAssistant) finalAssistant.content = result.finalAssistantText
     }
 
     const costUsd = calcCost(model, result.usage.promptTokens, result.usage.completionTokens)
@@ -310,6 +325,15 @@ export class AgentsService {
       emit: args.emit,
       signal: args.signal,
     })
+  }
+}
+
+function extractNotionUrl(content: string): string | undefined {
+  try {
+    const parsed = JSON.parse(content) as { url?: unknown }
+    return typeof parsed.url === 'string' && /^https:\/\//.test(parsed.url) ? parsed.url : undefined
+  } catch {
+    return undefined
   }
 }
 
