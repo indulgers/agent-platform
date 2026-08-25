@@ -4,11 +4,11 @@ import { useAuthStore } from '@/stores/auth-store'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Kbd } from '@/components/ui/kbd'
+import { logout } from '@/lib/auth'
 import { useTheme } from '@/lib/theme'
 
 function RootLayout() {
   const user = useAuthStore(s => s.user)
-  const clear = useAuthStore(s => s.clear)
   const { theme, toggle } = useTheme()
 
   return (
@@ -64,7 +64,7 @@ function RootLayout() {
               <>
                 <span className="text-muted-foreground font-mono text-[12.5px]">{user.email}</span>
                 <Kbd>⌘K</Kbd>
-                <Button size="sm" variant="ghost" onClick={clear}>
+                <Button size="sm" variant="ghost" onClick={() => void logout()}>
                   Sign out
                 </Button>
               </>

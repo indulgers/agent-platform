@@ -2,6 +2,7 @@ import 'reflect-metadata'
 import { NestFactory } from '@nestjs/core'
 import { ValidationPipe, Logger } from '@nestjs/common'
 import helmet from 'helmet'
+import cookieParser from 'cookie-parser'
 import { AppModule } from './app.module'
 import { loadEnv } from './config/env'
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter'
@@ -11,6 +12,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { bufferLogs: true })
 
   app.use(helmet({ contentSecurityPolicy: false }))
+  app.use(cookieParser())
   app.enableCors({ origin: env.WEB_ORIGIN, credentials: true })
   app.setGlobalPrefix('api', { exclude: ['health'] })
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }))

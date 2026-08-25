@@ -1,5 +1,6 @@
 import type { SseEvent } from '@agent-platform/shared'
 import { useAuthStore } from '@/stores/auth-store'
+import { refreshAccessToken } from '@/lib/auth'
 
 /**
  * Read an SSE body stream, parsing `data: …\n\n` framing by hand and invoking
@@ -54,6 +55,20 @@ async function drain(res: Response, onEvent: (event: SseEvent) => void): Promise
 }
 
 /**
+ * Open an SSE stream with credentials; on a 401 (expired access token) refresh
+ * once and retry. `buildInit` is called per attempt so the retry picks up the
+ * freshly-refreshed access token.
+ */
+async function fetchStream(path: string, buildInit: () => RequestInit): Promise<Response> {
+  let res = await fetch(`/api${path}`, { ...buildInit(), credentials: 'include' })
+  if (res.status === 401) {
+    const refreshed = await refreshAccessToken()
+    if (refreshed) res = await fetch(`/api${path}`, { ...buildInit(), credentials: 'include' })
+  }
+  return res
+}
+
+/**
  * Consume an SSE stream from a POST endpoint. `EventSource` cannot do POST, so we use
  * fetch + ReadableStream and parse `data: …\n\n` framing by hand.
  */
@@ -63,12 +78,12 @@ export async function consumeSse(
   onEvent: (event: SseEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`/api${path}`, {
+  const res = await fetchStream(path, () => ({
     method: 'POST',
     headers: authHeaders({ 'Content-Type': 'application/json' }),
     body: JSON.stringify(body),
     signal,
-  })
+  }))
   await drain(res, onEvent)
 }
 
@@ -81,10 +96,6 @@ export async function consumeSseGet(
   onEvent: (event: SseEvent) => void,
   signal?: AbortSignal,
 ): Promise<void> {
-  const res = await fetch(`/api${path}`, {
-    method: 'GET',
-    headers: authHeaders(),
-    signal,
-  })
+  const res = await fetchStream(path, () => ({ method: 'GET', headers: authHeaders(), signal }))
   await drain(res, onEvent)
 }
