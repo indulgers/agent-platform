@@ -46,6 +46,12 @@ class RemoteClient {
   async close() { await this.transport.close(); await this.client.close?.() }
 }
 
+/**
+ * Finds the first HTTP or HTTPS URL contained in a value.
+ *
+ * @param value - The value to search, including nested arrays and objects
+ * @returns The first HTTP or HTTPS URL, or `undefined` if none is found
+ */
 function findUrl(value: unknown): string | undefined {
   if (typeof value === 'string') { const match = value.match(/https?:\/\/[^\s"'}]+/); return match?.[0] }
   if (Array.isArray(value)) return value.map(findUrl).find(Boolean)

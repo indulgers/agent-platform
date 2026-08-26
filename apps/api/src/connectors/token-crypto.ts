@@ -29,6 +29,13 @@ export class TokenCrypto {
   }
 }
 
+/**
+ * Creates the connector credential encryption utility from a configured key.
+ *
+ * @param encodedKey - Base64-encoded key used for connector credential encryption
+ * @returns A configured token encryption utility
+ * @throws ServiceUnavailableException if the key is missing or invalid
+ */
 export function createConnectorTokenCrypto(encodedKey: string | undefined): TokenCrypto {
   try {
     if (!encodedKey) throw new Error('CONNECTOR_ENCRYPTION_KEY is required for connectors')
