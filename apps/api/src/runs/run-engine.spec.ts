@@ -6,6 +6,11 @@ import type { ProviderResolver } from '../agents/provider-resolver'
 import { FakeChatProvider } from '../agents/testing/fake-chat-provider'
 import { makeFakeTool, makeToolRegistryWith } from '../agents/testing/fake-tool'
 import { RunEngine } from './run-engine'
+import { RunLifecycle } from './run-lifecycle'
+import type { Queue } from 'bullmq'
+import type { RunJobPayload } from './run-queue'
+import type { RunEventsService } from './run-events'
+import { RunJournal } from './run-journal'
 
 /**
  * Integration test at the RunEngine seam (queue + persistence boundary): a real
@@ -19,6 +24,9 @@ const describeDb = process.env.DATABASE_URL ? describe : describe.skip
 function resolverWith(provider: FakeChatProvider): ProviderResolver {
   return { resolve: () => ({ provider, model: 'fake-model' }) }
 }
+
+const queue = { add: async () => undefined } as unknown as Queue<RunJobPayload>
+const events = { publish: async () => undefined } as unknown as RunEventsService
 
 describeDb('RunEngine (integration — real Postgres)', () => {
   const prisma = new PrismaService()
@@ -40,6 +48,16 @@ describeDb('RunEngine (integration — real Postgres)', () => {
     return prisma.run.create({ data: { userId, conversationId: convo.id, goal, status: 'planning' } })
   }
 
+  function engine(runner: AgentRunner, resolver: ProviderResolver) {
+    return new RunEngine(
+      prisma,
+      runner,
+      resolver,
+      new RunLifecycle(prisma, queue, events),
+      new RunJournal(prisma),
+    )
+  }
+
   it('runs a goal to completion, persisting steps, transcript and result', async () => {
     const run = await newRun('use the tool then answer')
     const echo = makeFakeTool({ name: 'echo', result: { ok: true } })
@@ -48,10 +66,10 @@ describeDb('RunEngine (integration — real Postgres)', () => {
       { toolCalls: [{ id: 'c1', name: 'echo', args: { v: 1 } }], finishReason: 'tool_calls' },
       { text: 'the answer', finishReason: 'stop' },
     ])
-    const engine = new RunEngine(prisma, runner, resolverWith(provider))
+    const runEngine = engine(runner, resolverWith(provider))
 
     const emitted: SseEvent[] = []
-    await engine.execute(run.id, e => emitted.push(e))
+    await runEngine.execute(run.id, e => emitted.push(e))
 
     const saved = await prisma.run.findUniqueOrThrow({
       where: { id: run.id },
@@ -72,10 +90,10 @@ describeDb('RunEngine (integration — real Postgres)', () => {
     const run = await newRun('research then write')
     const runner = new AgentRunner(makeToolRegistryWith())
     const provider = new FakeChatProvider([{ text: '1. Research\n2. Write it up', finishReason: 'stop' }])
-    const engine = new RunEngine(prisma, runner, resolverWith(provider))
+    const runEngine = engine(runner, resolverWith(provider))
 
     const emitted: SseEvent[] = []
-    await engine.plan(run.id, e => emitted.push(e))
+    await runEngine.plan(run.id, e => emitted.push(e))
 
     const saved = await prisma.run.findUniqueOrThrow({ where: { id: run.id }, include: { plan: true } })
     expect(saved.status).toBe('awaiting_approval')
@@ -93,9 +111,9 @@ describeDb('RunEngine (integration — real Postgres)', () => {
     })
     const runner = new AgentRunner(makeToolRegistryWith())
     const provider = new FakeChatProvider([{ text: 'plan executed', finishReason: 'stop' }])
-    const engine = new RunEngine(prisma, runner, resolverWith(provider))
+    const runEngine = engine(runner, resolverWith(provider))
 
-    await engine.execute(run.id)
+    await runEngine.execute(run.id)
 
     const saved = await prisma.run.findUniqueOrThrow({ where: { id: run.id } })
     expect(saved.status).toBe('done')
@@ -110,9 +128,9 @@ describeDb('RunEngine (integration — real Postgres)', () => {
     })
     const runner = new AgentRunner(makeToolRegistryWith())
     const provider = new FakeChatProvider([{ text: 'finished', finishReason: 'stop' }])
-    const engine = new RunEngine(prisma, runner, resolverWith(provider))
+    const runEngine = engine(runner, resolverWith(provider))
 
-    await engine.execute(run.id)
+    await runEngine.execute(run.id)
 
     // The prior progress was fed to the model as history (resume) ...
     expect(JSON.stringify(provider.calls[0]!.messages)).toMatch(/partial progress from earlier/)
@@ -130,9 +148,9 @@ describeDb('RunEngine (integration — real Postgres)', () => {
       { toolCalls: [{ id: 'c1', name: 'echo', args: {} }], finishReason: 'tool_calls' },
       { text: 'should not be reached', finishReason: 'stop' },
     ])
-    const engine = new RunEngine(prisma, runner, resolverWith(provider))
+    const runEngine = engine(runner, resolverWith(provider))
 
-    await engine.execute(run.id)
+    await runEngine.execute(run.id)
 
     const saved = await prisma.run.findUniqueOrThrow({ where: { id: run.id } })
     expect(saved.status).toBe('failed')
@@ -150,11 +168,11 @@ describeDb('RunEngine (integration — real Postgres)', () => {
       { toolCalls: [{ id: 'c2', name: 'delete_all', args: { x: 1 } }], finishReason: 'tool_calls' },
       { text: 'deleted', finishReason: 'stop' },
     ])
-    const engine = new RunEngine(prisma, runner, resolverWith(provider))
+    const runEngine = engine(runner, resolverWith(provider))
 
     // First pass pauses for approval — the tool has not run.
     const emitted: SseEvent[] = []
-    await engine.execute(run.id, e => emitted.push(e))
+    await runEngine.execute(run.id, e => emitted.push(e))
     let saved = await prisma.run.findUniqueOrThrow({ where: { id: run.id } })
     expect(saved.status).toBe('paused')
     expect(saved.pendingCheckpoint).toMatchObject({ name: 'delete_all' })
@@ -162,7 +180,7 @@ describeDb('RunEngine (integration — real Postgres)', () => {
 
     // Approve (record approval + resume) and re-run — now it executes to done.
     await prisma.run.update({ where: { id: run.id }, data: { checkpointsApproved: 1, status: 'running' } })
-    await engine.execute(run.id)
+    await runEngine.execute(run.id)
     saved = await prisma.run.findUniqueOrThrow({ where: { id: run.id } })
     expect(saved.status).toBe('done')
     expect((saved.result as { answer: string }).answer).toBe('deleted')
@@ -176,10 +194,10 @@ describeDb('RunEngine (integration — real Postgres)', () => {
         throw new Error('no provider configured')
       },
     }
-    const engine = new RunEngine(prisma, runner, resolver)
+    const runEngine = engine(runner, resolver)
 
     const emitted: SseEvent[] = []
-    await engine.execute(run.id, e => emitted.push(e))
+    await runEngine.execute(run.id, e => emitted.push(e))
 
     const saved = await prisma.run.findUniqueOrThrow({ where: { id: run.id } })
     expect(saved.status).toBe('failed')
