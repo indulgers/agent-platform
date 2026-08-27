@@ -53,21 +53,39 @@ export class RunLifecycle {
     switch (action.type) {
       case 'planning_completed':
         this.assert(current, ['planning'], action.type)
-        await this.prisma.plan.upsert({
-          where: { runId: action.runId },
-          create: { runId: action.runId, steps: action.steps as unknown as Prisma.InputJsonValue },
-          update: { steps: action.steps as unknown as Prisma.InputJsonValue, approvedAt: null },
+        await this.prisma.$transaction(async transaction => {
+          const claimed = await transaction.run.updateMany({
+            where: { id: action.runId, status: 'planning' },
+            data: { status: 'awaiting_approval' },
+          })
+          if (claimed.count !== 1) {
+            throw new BadRequestException(
+              `Cannot apply ${action.type} because Run ${action.runId} is no longer planning`,
+            )
+          }
+          await transaction.plan.upsert({
+            where: { runId: action.runId },
+            create: {
+              runId: action.runId,
+              steps: action.steps as unknown as Prisma.InputJsonValue,
+            },
+            update: { steps: action.steps as unknown as Prisma.InputJsonValue, approvedAt: null },
+          })
         })
-        await this.prisma.run.update({
-          where: { id: action.runId },
-          data: { status: 'awaiting_approval' },
-        })
-        await this.publish(action.runId, { type: 'plan_proposed', runId: action.runId, steps: action.steps }, emit)
-        await this.publish(action.runId, {
-          type: 'run_status',
-          runId: action.runId,
-          status: 'awaiting_approval',
-        }, emit)
+        await this.publish(
+          action.runId,
+          { type: 'plan_proposed', runId: action.runId, steps: action.steps },
+          emit,
+        )
+        await this.publish(
+          action.runId,
+          {
+            type: 'run_status',
+            runId: action.runId,
+            status: 'awaiting_approval',
+          },
+          emit,
+        )
         return
       case 'plan_approved':
         this.assert(current, ['awaiting_approval'], action.type)
@@ -95,31 +113,49 @@ export class RunLifecycle {
             pendingCheckpoint: action.call as unknown as Prisma.InputJsonValue,
           },
         })
-        await this.publish(action.runId, {
-          type: 'checkpoint_hit',
-          runId: action.runId,
-          tool: action.call.name,
-          args: action.call.args,
-        }, emit)
-        await this.publish(action.runId, {
-          type: 'run_status',
-          runId: action.runId,
-          status: 'paused',
-        }, emit)
+        await this.publish(
+          action.runId,
+          {
+            type: 'checkpoint_hit',
+            runId: action.runId,
+            tool: action.call.name,
+            args: action.call.args,
+          },
+          emit,
+        )
+        await this.publish(
+          action.runId,
+          {
+            type: 'run_status',
+            runId: action.runId,
+            status: 'paused',
+          },
+          emit,
+        )
         return
       case 'checkpoint_resolved':
         this.assert(current, ['paused'], action.type)
         if (action.approved) {
-          await this.setStatus(action.runId, 'running', {
-            checkpointsApproved: { increment: 1 },
-            pendingCheckpoint: Prisma.JsonNull,
-          }, emit)
+          await this.setStatus(
+            action.runId,
+            'running',
+            {
+              checkpointsApproved: { increment: 1 },
+              pendingCheckpoint: Prisma.JsonNull,
+            },
+            emit,
+          )
           await this.queue.add('execute', { runId: action.runId }, RUN_JOB_OPTIONS)
         } else {
-          await this.setStatus(action.runId, 'failed', {
-            error: 'Checkpoint rejected by user',
-            pendingCheckpoint: Prisma.JsonNull,
-          }, emit)
+          await this.setStatus(
+            action.runId,
+            'failed',
+            {
+              error: 'Checkpoint rejected by user',
+              pendingCheckpoint: Prisma.JsonNull,
+            },
+            emit,
+          )
         }
         return
       case 'interrupted':
@@ -130,19 +166,29 @@ export class RunLifecycle {
             data: { interruptRequested: true },
           })
         } else {
-          await this.setStatus(action.runId, 'failed', {
-            error: 'Interrupted by user',
-            interruptRequested: true,
-            pendingCheckpoint: Prisma.JsonNull,
-          }, emit)
+          await this.setStatus(
+            action.runId,
+            'failed',
+            {
+              error: 'Interrupted by user',
+              interruptRequested: true,
+              pendingCheckpoint: Prisma.JsonNull,
+            },
+            emit,
+          )
         }
         return
       case 'completed':
         this.assert(current, ['running'], action.type)
-        await this.setStatus(action.runId, 'done', {
-          result: { answer: action.answer } as Prisma.InputJsonValue,
-          usage: action.usage as Prisma.InputJsonValue,
-        }, emit)
+        await this.setStatus(
+          action.runId,
+          'done',
+          {
+            result: { answer: action.answer } as Prisma.InputJsonValue,
+            usage: action.usage as Prisma.InputJsonValue,
+          },
+          emit,
+        )
         return
       case 'failed':
         this.assert(current, ['planning', 'awaiting_approval', 'running', 'paused'], action.type)

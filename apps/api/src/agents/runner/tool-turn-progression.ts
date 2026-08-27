@@ -93,6 +93,7 @@ export class ToolTurnProgression {
 
       const failures: string[] = []
       for (const call of assembled.toolCalls) {
+        if (ctx.signal?.aborted) return { finalAssistantText, newMessages, usage }
         ctx.emit({ type: 'tool_call', id: call.id, name: call.name, args: call.args })
         const tool = ctx.tools.get(call.name)
         if (!tool) {
@@ -113,6 +114,7 @@ export class ToolTurnProgression {
           const result = await this.execute(tool, parsed, ctx, policy)
           this.recordToolResult(ctx, conversation, newMessages, call.id, result)
         } catch (caught) {
+          if (ctx.signal?.aborted) return { finalAssistantText, newMessages, usage }
           const error = caught instanceof Error ? caught.message : String(caught)
           this.logger.warn(`Tool ${call.name} failed: ${error}`)
           failures.push(`${call.name}: ${error}`)
@@ -176,12 +178,15 @@ export class ToolTurnProgression {
   ): Promise<unknown> {
     let lastError: unknown
     for (let attempt = 0; attempt <= policy.toolRetries; attempt++) {
+      if (ctx.signal?.aborted) throw lastError ?? new Error('Run was aborted')
       try {
-        return await tool.execute(input, ctx.ctx)
+        return await tool.execute(input, { ...ctx.ctx, signal: ctx.signal })
       } catch (error) {
         lastError = error
+        if (ctx.signal?.aborted) throw error
         if (attempt < policy.toolRetries) {
           await new Promise(resolve => setTimeout(resolve, policy.toolRetryBaseMs * (attempt + 1)))
+          if (ctx.signal?.aborted) throw error
         }
       }
     }

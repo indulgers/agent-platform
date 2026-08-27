@@ -1,6 +1,7 @@
 import type { SseEvent } from '@agent-platform/shared'
 import type { ChatAttachment, ChatMessage, ChatProvider } from '../llm/llm.interface'
 import type { ToolRegistry } from '../tools'
+import type { ToolContext } from '../tools/tool.interface'
 
 /**
  * Everything a strategy needs to drive one agent invocation. This is the
@@ -15,7 +16,7 @@ export interface RunnerOptions {
   userMessage: string
   /** Image attachments delivered with the user message (base64-resolved). */
   userAttachments?: ChatAttachment[]
-  ctx: { userId: string; conversationId: string }
+  ctx: Omit<ToolContext, 'signal'>
   maxIterations: number
   maxTokens: number
   /** The approved plan to execute, when running under plan→act→reflect. */

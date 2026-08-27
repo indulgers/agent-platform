@@ -7,16 +7,28 @@ import type { RunJobPayload } from './run-queue'
 import { RunLifecycle } from './run-lifecycle'
 
 function harness(status = 'planning') {
+  const transaction = vi.fn()
   const prisma = {
+    $transaction: transaction,
     run: {
       findUnique: vi.fn().mockResolvedValue({ status }),
       update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
     },
     plan: { upsert: vi.fn(), update: vi.fn() },
-  } as unknown as PrismaService
+  }
+  transaction.mockImplementation(async (operation: unknown) => {
+    if (typeof operation === 'function') return operation(prisma)
+    return Promise.all(operation as Promise<unknown>[])
+  })
   const queue = { add: vi.fn() } as unknown as Queue<RunJobPayload>
   const events = { publish: vi.fn() } as unknown as RunEventsService
-  return { prisma, queue, events, lifecycle: new RunLifecycle(prisma, queue, events) }
+  return {
+    prisma,
+    queue,
+    events,
+    lifecycle: new RunLifecycle(prisma as unknown as PrismaService, queue, events),
+  }
 }
 
 describe('RunLifecycle', () => {
@@ -29,10 +41,11 @@ describe('RunLifecycle', () => {
       steps: [{ index: 0, description: 'Research' }],
     })
 
-    expect(prisma.run.update).toHaveBeenCalledWith({
-      where: { id: 'run-1' },
+    expect(prisma.run.updateMany).toHaveBeenCalledWith({
+      where: { id: 'run-1', status: 'planning' },
       data: { status: 'awaiting_approval' },
     })
+    expect(prisma.$transaction).toHaveBeenCalledOnce()
     expect(events.publish).toHaveBeenCalledWith('run-1', {
       type: 'run_status',
       runId: 'run-1',
@@ -40,7 +53,23 @@ describe('RunLifecycle', () => {
     })
   })
 
-  it('approves a paused checkpoint atomically before enqueueing execution', async () => {
+  it('does not resurrect a Run interrupted before planning completion commits', async () => {
+    const { prisma, events, lifecycle } = harness('planning')
+    prisma.run.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(
+      lifecycle.apply({
+        type: 'planning_completed',
+        runId: 'run-1',
+        steps: [{ index: 0, description: 'Research' }],
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException)
+
+    expect(prisma.plan.upsert).not.toHaveBeenCalled()
+    expect(events.publish).not.toHaveBeenCalled()
+  })
+
+  it('persists a paused checkpoint approval before enqueueing execution', async () => {
     const { prisma, queue, lifecycle } = harness('paused')
 
     await lifecycle.apply({ type: 'checkpoint_resolved', runId: 'run-1', approved: true })

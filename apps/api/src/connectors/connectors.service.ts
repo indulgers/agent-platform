@@ -1,7 +1,11 @@
-import { Injectable, NotFoundException, UnauthorizedException } from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 import { loadEnv } from '../config/env'
-import { ConnectorOAuthProtocol, type OAuthTokens } from './connector-oauth-protocol'
+import {
+  ConnectorOAuthProtocol,
+  OAuthReconnectRequiredError,
+  type OAuthTokens,
+} from './connector-oauth-protocol'
 import { getRemoteMcpProvider, listRemoteMcpProviders } from './providers/registry'
 
 /** Owns user Connector records and delegates all OAuth mechanics to the protocol. */
@@ -98,20 +102,21 @@ export class ConnectorsService {
     refreshTokenEncrypted: string | null
     registrationId: string | null
   }) {
-    if (!connector.refreshTokenEncrypted) {
-      throw new UnauthorizedException('Notion needs to be reconnected')
-    }
-    if (!connector.registrationId) {
-      throw new UnauthorizedException(
-        'Notion needs to be reconnected because its OAuth client registration is unavailable',
-      )
-    }
     const provider = this.provider(connector.providerId)
     try {
+      if (!connector.refreshTokenEncrypted) {
+        throw new OAuthReconnectRequiredError(`${provider.displayName} needs to be reconnected`)
+      }
+      if (!connector.registrationId) {
+        throw new OAuthReconnectRequiredError(
+          `${provider.displayName} needs to be reconnected because its OAuth client registration is unavailable`,
+        )
+      }
       const tokens = await this.oauth.refresh({
         serverUrl: provider.serverUrl,
         registrationId: connector.registrationId,
-        refreshToken: this.oauth.decrypt(connector.refreshTokenEncrypted),
+        refreshTokenEncrypted: connector.refreshTokenEncrypted,
+        providerDisplayName: provider.displayName,
       })
       const data = this.tokenData('', connector.providerId, tokens)
       await this.prisma.connector.update({
@@ -120,7 +125,10 @@ export class ConnectorsService {
       })
       return tokens.access_token
     } catch (error) {
-      if (error instanceof Error && error.message.includes('invalid_grant')) {
+      if (
+        error instanceof OAuthReconnectRequiredError ||
+        (error instanceof Error && error.message.includes('invalid_grant'))
+      ) {
         await this.prisma.connector.update({
           where: { id: connector.id },
           data: { status: 'revoked' },
@@ -150,7 +158,9 @@ export class ConnectorsService {
   }
 
   private callbackUrl(providerId: string) {
-    return this.env.CONNECTOR_CALLBACK_URL
-      ?? `${this.env.WEB_ORIGIN.replace(/\/$/, '')}/api/connectors/callback/${providerId}`
+    return (
+      this.env.CONNECTOR_CALLBACK_URL ??
+      `${this.env.WEB_ORIGIN.replace(/\/$/, '')}/api/connectors/callback/${providerId}`
+    )
   }
 }

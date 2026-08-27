@@ -5,7 +5,11 @@ import { notionProvider } from './providers/notion.provider'
 import type { RemoteAgentTool, RemoteMcpProvider } from './providers/remote-mcp-provider'
 
 export interface RemoteMcpClient {
-  callTool(name: string, arguments_: Record<string, unknown>): Promise<unknown>
+  callTool(
+    name: string,
+    arguments_: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<unknown>
   close(): Promise<void>
 }
 
@@ -26,10 +30,7 @@ export class RemoteMcpService {
     @Inject(REMOTE_MCP_CLIENT_FACTORY) private readonly clients: RemoteMcpClientFactory,
   ) {}
 
-  async withUserTools<T>(
-    userId: string,
-    run: (tools: ToolDefinition[]) => Promise<T>,
-  ): Promise<T> {
+  async withUserTools<T>(userId: string, run: (tools: ToolDefinition[]) => Promise<T>): Promise<T> {
     const tools: ToolDefinition[] = []
     for (const provider of this.providers) {
       if (!(await this.connectors.isActive(userId, provider.id))) continue
@@ -48,7 +49,11 @@ export class RemoteMcpService {
         const accessToken = await this.connectors.accessToken(ctx.userId, provider.id)
         const client = await this.clients.connect(provider.serverUrl, accessToken)
         try {
-          const result = await client.callTool(adapter.remoteToolName, adapter.toRemoteArguments(input))
+          const result = await client.callTool(
+            adapter.remoteToolName,
+            adapter.toRemoteArguments(input),
+            ctx.signal,
+          )
           return adapter.fromRemoteResult(result)
         } finally {
           await client.close()
@@ -66,11 +71,10 @@ export class SdkRemoteMcpClientFactory implements RemoteMcpClientFactory {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { Client } = require('@modelcontextprotocol/sdk/client/index.js')
     // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js')
-    const client = new Client(
-      { name: 'agent-platform', version: '0.1.0' },
-      { capabilities: {} },
-    )
+    const {
+      StreamableHTTPClientTransport,
+    } = require('@modelcontextprotocol/sdk/client/streamableHttp.js')
+    const client = new Client({ name: 'agent-platform', version: '0.1.0' }, { capabilities: {} })
     const transport = new StreamableHTTPClientTransport(new URL(url), {
       requestInit: { headers: { Authorization: `Bearer ${accessToken}` } },
     })
@@ -81,8 +85,12 @@ export class SdkRemoteMcpClientFactory implements RemoteMcpClientFactory {
       throw error
     }
     return {
-      async callTool(name, arguments_) {
-        const result = await client.callTool({ name, arguments: arguments_ })
+      async callTool(name, arguments_, signal) {
+        const result = await client.callTool(
+          { name, arguments: arguments_ },
+          undefined,
+          signal ? { signal } : undefined,
+        )
         if (result.isError) throw new Error(`Remote tool ${name} failed`)
         return result
       },
@@ -91,20 +99,4 @@ export class SdkRemoteMcpClientFactory implements RemoteMcpClientFactory {
       },
     }
   }
-  async listTools() { return (await this.client.listTools()).tools as Array<{ name: string }> }
-  async callTool(name: string, arguments_: Record<string, unknown>) { const result = await this.client.callTool({ name, arguments: arguments_ }); if (result.isError) throw new Error(`Notion tool ${name} failed`); return result }
-  async close() { await this.transport.close(); await this.client.close?.() }
-}
-
-/**
- * Finds the first HTTP or HTTPS URL contained in a value.
- *
- * @param value - The value to search, including nested arrays and objects
- * @returns The first HTTP or HTTPS URL, or `undefined` if none is found
- */
-function findUrl(value: unknown): string | undefined {
-  if (typeof value === 'string') { const match = value.match(/https?:\/\/[^\s"'}]+/); return match?.[0] }
-  if (Array.isArray(value)) return value.map(findUrl).find(Boolean)
-  if (value && typeof value === 'object') return Object.values(value as Record<string, unknown>).map(findUrl).find(Boolean)
-  return undefined
 }

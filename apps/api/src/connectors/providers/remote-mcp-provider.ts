@@ -1,10 +1,5 @@
 import type { ZodType } from 'zod'
 
-export interface AgentToolMapping {
-  name: string
-  arguments: Record<string, unknown>
-}
-
 export interface RemoteAgentTool {
   name: string
   description: string
@@ -20,6 +15,4 @@ export interface RemoteMcpProvider {
   displayName: string
   serverUrl: string
   agentTools: readonly RemoteAgentTool[]
-  allowedRemoteTools: readonly string[]
-  toAgentTool(remoteToolName: string, input: unknown): AgentToolMapping | null
 }

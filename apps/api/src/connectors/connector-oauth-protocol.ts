@@ -15,6 +15,8 @@ export interface OAuthTokens {
   expires_in?: number
 }
 
+export class OAuthReconnectRequiredError extends UnauthorizedException {}
+
 /** OAuth protocol boundary shared by authorization, callback and refresh. */
 @Injectable()
 export class ConnectorOAuthProtocol {
@@ -93,9 +95,12 @@ export class ConnectorOAuthProtocol {
       throw new BadRequestException('OAuth callback did not include an authorization code')
     }
     if (!input.serverUrl) throw new Error('OAuth provider server URL is required')
+    const registeredIssuer = await this.registrations.issuerById(saved.registrationId)
+    const metadata = await discoverOAuthMetadata(input.serverUrl)
+    this.assertIssuer(metadata, registeredIssuer, input.providerDisplayName)
     const registration = await this.registrations.byId(saved.registrationId)
     const tokens = await this.exchange(
-      await discoverOAuthMetadata(input.serverUrl),
+      metadata,
       new URLSearchParams({
         grant_type: 'authorization_code',
         code: input.code,
@@ -110,12 +115,19 @@ export class ConnectorOAuthProtocol {
   async refresh(input: {
     serverUrl: string
     registrationId: string
-    refreshToken: string
+    refreshTokenEncrypted: string
+    providerDisplayName?: string
   }): Promise<OAuthTokens> {
+    const registeredIssuer = await this.registrations.issuerById(input.registrationId)
+    const metadata = await discoverOAuthMetadata(input.serverUrl)
+    this.assertIssuer(metadata, registeredIssuer, input.providerDisplayName)
     const registration = await this.registrations.byId(input.registrationId)
     return this.exchange(
-      await discoverOAuthMetadata(input.serverUrl),
-      new URLSearchParams({ grant_type: 'refresh_token', refresh_token: input.refreshToken }),
+      metadata,
+      new URLSearchParams({
+        grant_type: 'refresh_token',
+        refresh_token: this.crypto().decrypt(input.refreshTokenEncrypted),
+      }),
       registration,
     )
   }
@@ -148,6 +160,23 @@ export class ConnectorOAuthProtocol {
     const tokens = JSON.parse(text) as OAuthTokens
     if (!tokens.access_token) throw new Error('Token response did not include access_token')
     return tokens
+  }
+
+  private assertIssuer(
+    metadata: OAuthMetadata,
+    registeredIssuer: string | undefined,
+    providerDisplayName = 'Connector',
+  ): void {
+    if (!registeredIssuer) {
+      throw new OAuthReconnectRequiredError(
+        `${providerDisplayName} needs to be reconnected because its OAuth client registration issuer is unavailable`,
+      )
+    }
+    if (metadata.issuer !== registeredIssuer) {
+      throw new OAuthReconnectRequiredError(
+        `${providerDisplayName} needs to be reconnected because its OAuth authorization server changed`,
+      )
+    }
   }
 
   private crypto(): TokenCrypto {

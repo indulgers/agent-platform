@@ -4,7 +4,11 @@ import { PrismaService } from '../prisma/prisma.service'
 import { AgentRunner } from '../agents/runner/agent-runner'
 import { PlanActReflectStrategy } from '../agents/runner/plan-act-reflect.strategy'
 import { PROVIDER_RESOLVER, type ProviderResolver } from '../agents/provider-resolver'
-import type { PlanDraft, PlanStepDraft, RunnerOptions } from '../agents/runner/agent-strategy.interface'
+import type {
+  PlanDraft,
+  PlanStepDraft,
+  RunnerOptions,
+} from '../agents/runner/agent-strategy.interface'
 import { calcCost } from '../agents/models.registry'
 import { toChatMessage } from '../agents/chat-message.mapper'
 import type { ChatMessage } from '../agents/llm/llm.interface'
@@ -59,6 +63,7 @@ export class RunEngine {
   async execute(runId: string, emit: Emit = noop): Promise<void> {
     const run = await this.loadRun(runId)
     if (!run) return
+    if (run.status === 'done' || run.status === 'failed' || run.status === 'paused') return
 
     await this.lifecycle.apply({ type: 'execution_started', runId }, emit)
 
@@ -116,14 +121,21 @@ export class RunEngine {
         completionTokens: result.usage.completionTokens,
         costUsd: calcCost(model, result.usage.promptTokens, result.usage.completionTokens),
       }
-      await this.lifecycle.apply({
-        type: 'completed',
-        runId,
-        answer: result.finalAssistantText,
-        usage,
-      }, emit)
+      await this.lifecycle.apply(
+        {
+          type: 'completed',
+          runId,
+          answer: result.finalAssistantText,
+          usage,
+        },
+        emit,
+      )
     } catch (err) {
-      await journal.flushSteps()
+      try {
+        await journal.flushSteps()
+      } catch (flushError) {
+        this.logger.warn(`Run ${runId} step flush failed: ${String(flushError)}`)
+      }
       await this.fail(runId, err, emit)
     }
   }
@@ -150,7 +162,15 @@ export class RunEngine {
   }
 
   private optionsFor(
-    run: { userId: string; conversationId: string; goal: string; conversation: { model: string | null; messages: { role: string; content: string; toolCalls: unknown; toolCallId: string | null }[] } },
+    run: {
+      userId: string
+      conversationId: string
+      goal: string
+      conversation: {
+        model: string | null
+        messages: { role: string; content: string; toolCalls: unknown; toolCallId: string | null }[]
+      }
+    },
     emit: Emit,
     plan?: PlanDraft,
   ): RunnerOptions {
@@ -175,5 +195,4 @@ export class RunEngine {
     this.logger.error(`Run ${runId} failed: ${message}`)
     await this.lifecycle.apply({ type: 'failed', runId, error: message }, emit)
   }
-
 }
