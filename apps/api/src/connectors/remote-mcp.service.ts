@@ -1,45 +1,95 @@
-import { Injectable } from '@nestjs/common'
-import { z } from 'zod'
+import { Inject, Injectable } from '@nestjs/common'
 import type { ToolDefinition } from '../agents/tools/tool.interface'
 import { ConnectorsService } from './connectors.service'
-import { getRemoteMcpProvider } from './providers/registry'
-import { notionCreatePageInput } from './providers/notion.provider'
+import { notionProvider } from './providers/notion.provider'
+import type { RemoteAgentTool, RemoteMcpProvider } from './providers/remote-mcp-provider'
 
+export interface RemoteMcpClient {
+  callTool(name: string, arguments_: Record<string, unknown>): Promise<unknown>
+  close(): Promise<void>
+}
+
+export interface RemoteMcpClientFactory {
+  connect(url: string, accessToken: string): Promise<RemoteMcpClient>
+}
+
+export const REMOTE_MCP_CLIENT_FACTORY = Symbol('REMOTE_MCP_CLIENT_FACTORY')
+
+/** Builds tools for the user's connected providers and owns remote sessions. */
 @Injectable()
 export class RemoteMcpService {
-  constructor(private readonly connectors: ConnectorsService) {}
+  // Deliberately concrete until a second real provider exists.
+  private readonly providers: readonly RemoteMcpProvider[] = [notionProvider]
 
-  async withUserTools<T>(userId: string, run: (tools: ToolDefinition[]) => Promise<T>): Promise<T> {
-    // Do not decrypt a token or establish a remote session until the model
-    // actually calls the tool; this local status lookup is side-effect-free.
-    return run((await this.connectors.isActive(userId, 'notion')) ? [this.notionTool()] : [])
+  constructor(
+    private readonly connectors: ConnectorsService,
+    @Inject(REMOTE_MCP_CLIENT_FACTORY) private readonly clients: RemoteMcpClientFactory,
+  ) {}
+
+  async withUserTools<T>(
+    userId: string,
+    run: (tools: ToolDefinition[]) => Promise<T>,
+  ): Promise<T> {
+    const tools: ToolDefinition[] = []
+    for (const provider of this.providers) {
+      if (!(await this.connectors.isActive(userId, provider.id))) continue
+      for (const adapter of provider.agentTools) tools.push(this.tool(provider, adapter))
+    }
+    return run(tools)
   }
 
-  private notionTool(): ToolDefinition<z.infer<typeof notionCreatePageInput>, { url?: string; result: unknown }> {
-    return { name: 'notion_create_page', description: 'Create a new private page in the user\'s Notion workspace from Markdown. Use only when the user explicitly asks to save to Notion.', schema: notionCreatePageInput, parameters: { type: 'object', properties: { title: { type: 'string' }, content: { type: 'string' }, icon: { type: 'string' } }, required: ['title', 'content'], additionalProperties: false }, execute: async (input, ctx) => {
-      const mapped = getRemoteMcpProvider('notion')!.toAgentTool('notion-create-pages', input)!
-      const provider = getRemoteMcpProvider('notion')!
-      const client = await RemoteClient.connect(provider.serverUrl, await this.connectors.accessToken(ctx.userId, 'notion'))
-      try {
-        const result = await client.callTool('notion-create-pages', mapped.arguments)
-        return { result, url: findUrl(result) }
-      } finally { await client.close() }
-    } }
+  private tool(provider: RemoteMcpProvider, adapter: RemoteAgentTool): ToolDefinition {
+    return {
+      name: adapter.name,
+      description: adapter.description,
+      schema: adapter.schema,
+      parameters: adapter.parameters,
+      execute: async (input, ctx) => {
+        const accessToken = await this.connectors.accessToken(ctx.userId, provider.id)
+        const client = await this.clients.connect(provider.serverUrl, accessToken)
+        try {
+          const result = await client.callTool(adapter.remoteToolName, adapter.toRemoteArguments(input))
+          return adapter.fromRemoteResult(result)
+        } finally {
+          await client.close()
+        }
+      },
+    }
   }
 }
 
-class RemoteClient {
-  private constructor(private readonly client: any, private readonly transport: any) {}
-  static async connect(url: string, accessToken: string) {
+/** Production MCP SDK adapter, kept behind a factory for lifecycle tests. */
+@Injectable()
+export class SdkRemoteMcpClientFactory implements RemoteMcpClientFactory {
+  async connect(url: string, accessToken: string): Promise<RemoteMcpClient> {
     // SDK imports remain require() to support Nest's CJS build.
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { Client } = require('@modelcontextprotocol/sdk/client/index.js')
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { StreamableHTTPClientTransport } = require('@modelcontextprotocol/sdk/client/streamableHttp.js')
-    const client = new Client({ name: 'agent-platform', version: '0.1.0' }, { capabilities: {} })
-    const transport = new StreamableHTTPClientTransport(new URL(url), { requestInit: { headers: { Authorization: `Bearer ${accessToken}` } } })
-    try { await client.connect(transport); return new RemoteClient(client, transport) }
-    catch (error) { await transport.close?.(); await client.close?.(); throw error }
+    const client = new Client(
+      { name: 'agent-platform', version: '0.1.0' },
+      { capabilities: {} },
+    )
+    const transport = new StreamableHTTPClientTransport(new URL(url), {
+      requestInit: { headers: { Authorization: `Bearer ${accessToken}` } },
+    })
+    try {
+      await client.connect(transport)
+    } catch (error) {
+      await Promise.allSettled([transport.close?.(), client.close?.()])
+      throw error
+    }
+    return {
+      async callTool(name, arguments_) {
+        const result = await client.callTool({ name, arguments: arguments_ })
+        if (result.isError) throw new Error(`Remote tool ${name} failed`)
+        return result
+      },
+      async close() {
+        await Promise.allSettled([transport.close(), client.close?.()])
+      },
+    }
   }
   async listTools() { return (await this.client.listTools()).tools as Array<{ name: string }> }
   async callTool(name: string, arguments_: Record<string, unknown>) { const result = await this.client.callTool({ name, arguments: arguments_ }); if (result.isError) throw new Error(`Notion tool ${name} failed`); return result }

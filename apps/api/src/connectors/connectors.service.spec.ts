@@ -4,6 +4,7 @@ import { loadEnv } from '../config/env'
 import { ConnectorsService } from './connectors.service'
 import { OAuthClientRegistrationService } from './oauth-client-registration.service'
 import { TokenCrypto } from './token-crypto'
+import { ConnectorOAuthProtocol } from './connector-oauth-protocol'
 
 const currentCallbackUrl = 'https://current.example.test/callback/notion'
 const originalCallbackUrl = 'https://previous.example.test/callback/notion'
@@ -22,7 +23,8 @@ function createService(options: { connectorEncryptionKey?: string } = {}) {
     oAuthState: { create: vi.fn(), findUnique: vi.fn(), updateMany: vi.fn() },
   } as unknown as PrismaService
   const registrations = { getOrCreate: vi.fn(), byId: vi.fn() } as unknown as OAuthClientRegistrationService
-  return { prisma, registrations, service: new ConnectorsService(prisma, registrations) }
+  const oauth = new ConnectorOAuthProtocol(prisma, registrations)
+  return { prisma, registrations, service: new ConnectorsService(prisma, oauth) }
 }
 
 function stubOAuthDiscovery() {

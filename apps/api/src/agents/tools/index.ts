@@ -8,9 +8,9 @@ import { MemoryService } from '../../memory/memory.service'
 export class ToolRegistry {
   private readonly tools: Map<string, ToolDefinition>
 
-  constructor(private readonly memory: MemoryService, initial?: ToolDefinition[]) {
+  constructor(private readonly memory: MemoryService) {
     this.tools = new Map()
-    for (const tool of initial ?? [httpFetchTool, createVectorSearchTool(this.memory)]) this.register(tool)
+    for (const tool of [httpFetchTool, createVectorSearchTool(this.memory)]) this.register(tool)
     // sql_query is intentionally not registered by default.
   }
 
@@ -28,6 +28,13 @@ export class ToolRegistry {
 
   /** A per-run registry that never mutates the shared built-in registry. */
   scoped(additional: ToolDefinition[]): ToolRegistry {
-    return new ToolRegistry(this.memory, [...this.list(), ...additional])
+    return ToolRegistry.fromTools(this.memory, [...this.list(), ...additional])
+  }
+
+  private static fromTools(memory: MemoryService, tools: ToolDefinition[]): ToolRegistry {
+    const registry = new ToolRegistry(memory)
+    registry.tools.clear()
+    for (const tool of tools) registry.register(tool)
+    return registry
   }
 }

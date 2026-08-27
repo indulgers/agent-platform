@@ -6,12 +6,14 @@ import { RunEngine } from './run-engine'
 import { RunProcessor } from './run.processor'
 import { RunEventsService } from './run-events'
 import { RUN_QUEUE } from './run-queue'
+import { RunLifecycle } from './run-lifecycle'
+import { RunJournal } from './run-journal'
 import { ConversationsModule } from '../conversations/conversations.module'
 import { AgentsModule } from '../agents/agents.module'
 
 @Module({
   imports: [BullModule.registerQueue({ name: RUN_QUEUE }), ConversationsModule, AgentsModule],
-  providers: [RunsService, RunEngine, RunProcessor, RunEventsService],
+  providers: [RunsService, RunEngine, RunProcessor, RunEventsService, RunLifecycle, RunJournal],
   controllers: [RunsController],
   exports: [RunsService],
 })
