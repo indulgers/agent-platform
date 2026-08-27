@@ -6,6 +6,13 @@ export interface OAuthMetadata {
   scopes_supported?: string[]
 }
 
+/**
+ * Discovers OAuth server metadata for a protected resource.
+ *
+ * @param serverUrl - The protected resource server URL
+ * @returns The validated OAuth server metadata
+ * @throws If protected-resource discovery fails, no authorization server is provided, authorization-server discovery fails, or required metadata is missing
+ */
 export async function discoverOAuthMetadata(serverUrl: string): Promise<OAuthMetadata> {
   const protectedResource = await fetch(protectedResourceMetadataUrl(serverUrl))
   if (!protectedResource.ok) throw new Error(`OAuth protected-resource discovery failed (${protectedResource.status})`)
@@ -19,6 +26,12 @@ export async function discoverOAuthMetadata(serverUrl: string): Promise<OAuthMet
   return metadata
 }
 
+/**
+ * Constructs the OAuth protected-resource metadata URL for a server.
+ *
+ * @param serverUrl - The server URL whose path and query string should be preserved
+ * @returns The corresponding OAuth protected-resource metadata URL
+ */
 function protectedResourceMetadataUrl(serverUrl: string) {
   const resource = new URL(serverUrl)
   const path = resource.pathname.replace(/^\/+/, '')

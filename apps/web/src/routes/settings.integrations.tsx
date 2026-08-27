@@ -11,6 +11,9 @@ export const Route = createFileRoute('/settings/integrations')({
   component: Integrations,
 })
 
+/**
+ * Displays available integrations and their connection status, with controls to authorize or disconnect providers.
+ */
 function Integrations() {
   const [connectors, setConnectors] = useState<Connector[]>([])
   const [error, setError] = useState<string | null>(null)

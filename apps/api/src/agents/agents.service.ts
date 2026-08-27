@@ -328,6 +328,12 @@ export class AgentsService {
   }
 }
 
+/**
+ * Extracts a valid HTTPS URL from serialized tool-message content.
+ *
+ * @param content - The serialized content to parse
+ * @returns The HTTPS URL when present and valid, `undefined` otherwise
+ */
 function extractNotionUrl(content: string): string | undefined {
   try {
     const parsed = JSON.parse(content) as { url?: unknown }
@@ -337,7 +343,12 @@ function extractNotionUrl(content: string): string | undefined {
   }
 }
 
-/** Truncate user text into a one-line title at a word boundary if possible. */
+/**
+ * Creates a concise, single-line title from user text.
+ *
+ * @param content - The text from which to derive the title
+ * @returns A trimmed title limited to the maximum length, or the default title for blank content
+ */
 function deriveTitle(content: string): string {
   const oneLine = content.replace(/\s+/g, ' ').trim()
   if (oneLine.length <= TITLE_MAX_LEN) return oneLine || DEFAULT_TITLE

@@ -6,6 +6,9 @@ import { Badge } from '@/components/ui/badge'
 import { Kbd } from '@/components/ui/kbd'
 import { useTheme } from '@/lib/theme'
 
+/**
+ * Renders the application's root layout with navigation, theme controls, authentication controls, and nested route content.
+ */
 function RootLayout() {
   const user = useAuthStore(s => s.user)
   const clear = useAuthStore(s => s.clear)

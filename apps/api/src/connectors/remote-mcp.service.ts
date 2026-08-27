@@ -91,4 +91,20 @@ export class SdkRemoteMcpClientFactory implements RemoteMcpClientFactory {
       },
     }
   }
+  async listTools() { return (await this.client.listTools()).tools as Array<{ name: string }> }
+  async callTool(name: string, arguments_: Record<string, unknown>) { const result = await this.client.callTool({ name, arguments: arguments_ }); if (result.isError) throw new Error(`Notion tool ${name} failed`); return result }
+  async close() { await this.transport.close(); await this.client.close?.() }
+}
+
+/**
+ * Finds the first HTTP or HTTPS URL contained in a value.
+ *
+ * @param value - The value to search, including nested arrays and objects
+ * @returns The first HTTP or HTTPS URL, or `undefined` if none is found
+ */
+function findUrl(value: unknown): string | undefined {
+  if (typeof value === 'string') { const match = value.match(/https?:\/\/[^\s"'}]+/); return match?.[0] }
+  if (Array.isArray(value)) return value.map(findUrl).find(Boolean)
+  if (value && typeof value === 'object') return Object.values(value as Record<string, unknown>).map(findUrl).find(Boolean)
+  return undefined
 }
