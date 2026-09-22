@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common'
 import { ToolRegistry } from '../tools'
 import { DefaultAgentStrategy } from './default-agent.strategy'
 import type { AgentStrategy, PlanDraft, RunnerOptions, RunnerResult } from './agent-strategy.interface'
+import type { ToolDefinition } from '../tools/tool.interface'
 
 // Re-exported for existing importers; the canonical definitions now live with
 // the strategy contract.
@@ -18,8 +19,8 @@ export class AgentRunner {
 
   constructor(private readonly tools: ToolRegistry) {}
 
-  run(opts: RunnerOptions, strategy: AgentStrategy = this.defaultStrategy): Promise<RunnerResult> {
-    return strategy.run({ ...opts, tools: this.tools })
+  run(opts: RunnerOptions, strategy: AgentStrategy = this.defaultStrategy, additionalTools: ToolDefinition[] = []): Promise<RunnerResult> {
+    return strategy.run({ ...opts, tools: this.tools.scoped(additionalTools) })
   }
 
   /** Run a strategy's planning phase. Throws if the strategy has none. */

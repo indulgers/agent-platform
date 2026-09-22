@@ -7,6 +7,9 @@ import { Kbd } from '@/components/ui/kbd'
 import { logout } from '@/lib/auth'
 import { useTheme } from '@/lib/theme'
 
+/**
+ * Renders the application's root layout with navigation, theme controls, authentication controls, and nested route content.
+ */
 function RootLayout() {
   const user = useAuthStore(s => s.user)
   const { theme, toggle } = useTheme()
@@ -45,6 +48,12 @@ function RootLayout() {
                 className="px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-[color:var(--color-surface-2)] transition-colors [&.active]:text-foreground [&.active]:bg-[color:var(--color-surface-2)]"
               >
                 Runs
+              </Link>
+              <Link
+                to="/settings/integrations"
+                className="px-2.5 py-1 rounded-md text-muted-foreground hover:text-foreground hover:bg-[color:var(--color-surface-2)] transition-colors [&.active]:text-foreground [&.active]:bg-[color:var(--color-surface-2)]"
+              >
+                Settings
               </Link>
             </nav>
           )}

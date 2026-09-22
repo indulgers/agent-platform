@@ -21,6 +21,61 @@ model User {
   createdAt     DateTime       @default(now())
   conversations Conversation[]
   runs          Run[]
+  connectors    Connector[]
+  oauthStates   OAuthState[]
+}
+
+enum ConnectorStatus {
+  active
+  revoked
+}
+
+model Connector {
+  id                    String          @id @default(cuid())
+  userId                String
+  user                  User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerId            String
+  status                ConnectorStatus @default(active)
+  accessTokenEncrypted  String
+  refreshTokenEncrypted String?
+  registrationId        String?
+  registration          OAuthClientRegistration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  expiresAt             DateTime?
+  createdAt             DateTime        @default(now())
+  updatedAt             DateTime        @updatedAt
+
+  @@unique([userId, providerId])
+  @@index([userId, status])
+}
+
+model OAuthState {
+  state                 String                   @id
+  userId                String
+  user                  User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  providerId            String
+  pkceVerifierEncrypted String
+  registrationId        String?
+  registration          OAuthClientRegistration? @relation(fields: [registrationId], references: [id], onDelete: Restrict)
+  expiresAt             DateTime
+  consumedAt            DateTime?
+  createdAt             DateTime                 @default(now())
+
+  @@index([expiresAt])
+}
+
+model OAuthClientRegistration {
+  id                    String       @id @default(cuid())
+  providerId            String
+  callbackUrl           String
+  issuer                String?
+  clientId              String
+  clientSecretEncrypted String?
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  oauthStates           OAuthState[]
+  connectors            Connector[]
+
+  @@unique([providerId, callbackUrl, issuer])
 }
 
 model Conversation {

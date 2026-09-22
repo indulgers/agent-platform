@@ -37,6 +37,8 @@ const envSchema = z.object({
   EMBEDDING_MODEL: z.string().default('text-embedding-3-small'),
 
   WEB_ORIGIN: z.string().url().default('http://localhost:5173'),
+  CONNECTOR_CALLBACK_URL: emptyAsUndefined(z.string().url().optional()),
+  CONNECTOR_ENCRYPTION_KEY: emptyAsUndefined(z.string().optional()),
 
   // S3-compatible storage. _ENDPOINT = backend talks to MinIO; _PUBLIC_ENDPOINT
   // = the URL the browser PUTs to via presigned URL.

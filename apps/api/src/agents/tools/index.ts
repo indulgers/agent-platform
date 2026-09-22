@@ -10,8 +10,7 @@ export class ToolRegistry {
 
   constructor(private readonly memory: MemoryService) {
     this.tools = new Map()
-    this.register(httpFetchTool)
-    this.register(createVectorSearchTool(this.memory))
+    for (const tool of [httpFetchTool, createVectorSearchTool(this.memory)]) this.register(tool)
     // sql_query is intentionally not registered by default.
   }
 
@@ -25,5 +24,17 @@ export class ToolRegistry {
 
   list(): ToolDefinition[] {
     return Array.from(this.tools.values())
+  }
+
+  /** A per-run registry that never mutates the shared built-in registry. */
+  scoped(additional: ToolDefinition[]): ToolRegistry {
+    return ToolRegistry.fromTools(this.memory, [...this.list(), ...additional])
+  }
+
+  private static fromTools(memory: MemoryService, tools: ToolDefinition[]): ToolRegistry {
+    const registry = new ToolRegistry(memory)
+    registry.tools.clear()
+    for (const tool of tools) registry.register(tool)
+    return registry
   }
 }

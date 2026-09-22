@@ -3,6 +3,7 @@ import { z } from 'zod'
 export interface ToolContext {
   userId: string
   conversationId: string
+  signal?: AbortSignal
 }
 
 export interface ToolDefinition<TInput = unknown, TOutput = unknown> {
@@ -36,8 +37,10 @@ function describe(node: z.ZodTypeAny): Record<string, unknown> {
   if (node instanceof z.ZodString) return { type: 'string', description: node.description }
   if (node instanceof z.ZodNumber) return { type: 'number', description: node.description }
   if (node instanceof z.ZodBoolean) return { type: 'boolean', description: node.description }
-  if (node instanceof z.ZodEnum) return { type: 'string', enum: node.options, description: node.description }
-  if (node instanceof z.ZodArray) return { type: 'array', items: describe(node._def.type), description: node.description }
+  if (node instanceof z.ZodEnum)
+    return { type: 'string', enum: node.options, description: node.description }
+  if (node instanceof z.ZodArray)
+    return { type: 'array', items: describe(node._def.type), description: node.description }
   if (node instanceof z.ZodObject) return zodObjectToJsonSchema(node)
   return { description: node.description }
 }

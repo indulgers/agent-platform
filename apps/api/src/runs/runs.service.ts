@@ -1,31 +1,18 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { InjectQueue } from '@nestjs/bullmq'
-import { Prisma } from '@prisma/client'
-import { Queue } from 'bullmq'
 import { PrismaService } from '../prisma/prisma.service'
 import { ConversationsService } from '../conversations/conversations.service'
-import { RunEventsService } from './run-events'
-import { RUN_QUEUE, type RunJobPayload } from './run-queue'
 import type { ApprovePlanInput, CreateRunInput } from '@agent-platform/shared'
+import { RunLifecycle } from './run-lifecycle'
 
 /** How much of a goal to use as the auto-created conversation title. */
 const TITLE_MAX_LEN = 48
-
-/** Transient failures retry with exponential backoff before the Run is failed. */
-const JOB_OPTS = {
-  attempts: 3,
-  backoff: { type: 'exponential' as const, delay: 1000 },
-  removeOnComplete: 100,
-  removeOnFail: 500,
-}
 
 @Injectable()
 export class RunsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly conversations: ConversationsService,
-    @InjectQueue(RUN_QUEUE) private readonly queue: Queue<RunJobPayload>,
-    private readonly runEvents: RunEventsService,
+    private readonly lifecycle: RunLifecycle,
   ) {}
 
   /**
@@ -47,7 +34,7 @@ export class RunsService {
       data: { userId, conversationId, goal: input.goal, status: 'planning' },
       include: { plan: true, steps: { orderBy: { seq: 'asc' } } },
     })
-    await this.queue.add('plan', { runId: run.id }, JOB_OPTS)
+    await this.lifecycle.apply({ type: 'created', runId: run.id })
     return run
   }
 
@@ -60,15 +47,7 @@ export class RunsService {
     if (run.status !== 'awaiting_approval') {
       throw new BadRequestException(`Run is ${run.status}, not awaiting approval`)
     }
-    const editedSteps = input.steps
-    await this.prisma.plan.update({
-      where: { runId: id },
-      data: {
-        approvedAt: new Date(),
-        ...(editedSteps ? { steps: editedSteps as unknown as Prisma.InputJsonValue } : {}),
-      },
-    })
-    await this.queue.add('execute', { runId: id }, JOB_OPTS)
+    await this.lifecycle.apply({ type: 'plan_approved', runId: id, steps: input.steps })
     return this.get(userId, id)
   }
 
@@ -83,20 +62,7 @@ export class RunsService {
     if (run.status === 'done' || run.status === 'failed') {
       throw new BadRequestException(`Run is already ${run.status}`)
     }
-    if (run.status === 'running') {
-      await this.prisma.run.update({ where: { id }, data: { interruptRequested: true } })
-      return this.get(userId, id)
-    }
-    await this.prisma.run.update({
-      where: { id },
-      data: {
-        status: 'failed',
-        error: 'Interrupted by user',
-        interruptRequested: true,
-        pendingCheckpoint: Prisma.JsonNull,
-      },
-    })
-    await this.runEvents.publish(id, { type: 'run_status', runId: id, status: 'failed' })
+    await this.lifecycle.apply({ type: 'interrupted', runId: id })
     return this.get(userId, id)
   }
 
@@ -110,23 +76,7 @@ export class RunsService {
     if (run.status !== 'paused') {
       throw new BadRequestException(`Run is ${run.status}, not paused`)
     }
-    if (approve) {
-      await this.prisma.run.update({
-        where: { id },
-        data: {
-          checkpointsApproved: { increment: 1 },
-          pendingCheckpoint: Prisma.JsonNull,
-          status: 'running',
-        },
-      })
-      await this.queue.add('execute', { runId: id }, JOB_OPTS)
-    } else {
-      await this.prisma.run.update({
-        where: { id },
-        data: { status: 'failed', error: 'Checkpoint rejected by user', pendingCheckpoint: Prisma.JsonNull },
-      })
-      await this.runEvents.publish(id, { type: 'run_status', runId: id, status: 'failed' })
-    }
+    await this.lifecycle.apply({ type: 'checkpoint_resolved', runId: id, approved: approve })
     return this.get(userId, id)
   }
 

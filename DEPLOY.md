@@ -102,6 +102,19 @@ without:
 | `S3_PUBLIC_ENDPOINT` | `http://<your-vps-ip>:9100` |
 | `WEB_ORIGIN` | `http://<your-vps-ip>` |
 
+For Notion MCP, you can set `CONNECTOR_CALLBACK_URL` to
+`https://<your-domain>/api/connectors/callback/notion`; when omitted, it
+defaults to `WEB_ORIGIN` plus that callback path. Set
+`CONNECTOR_ENCRYPTION_KEY` to a fresh base64-encoded 32-byte key generated
+with `openssl rand -base64 32` before connecting Notion MCP. It is not required
+for general API startup. The API registers its public Notion MCP OAuth client
+automatically on the first connection. Tokens are encrypted at rest; do not
+rotate the key without reconnecting users.
+
+Existing Notion MCP connector grants created before dynamic OAuth registration
+was deployed do not have a durable client-registration binding. Their users
+must reconnect after this deployment before the API can refresh those grants.
+
 At least one of `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` / `DEEPSEEK_API_KEY`.
 
 ### 6. First-time build + boot (manual)
@@ -114,12 +127,22 @@ docker compose --env-file .env -f deploy/docker-compose.yml ps
 # all services should be 'healthy' / 'running'
 ```
 
-Apply the Prisma schema once (and every time the schema changes):
+The API applies committed Prisma migrations before Nest starts. Schema changes
+must therefore be introduced as a reviewed migration and committed with the
+schema; do not use `prisma db push` against production.
+
+This repository's first migration is a baseline for databases created before
+migrations were introduced. If this VPS already has an `agent_platform`
+database created with `db push`, mark that baseline as applied once before the
+first deployment containing migrations:
 
 ```bash
-docker compose --env-file .env -f deploy/docker-compose.yml exec api \
-  node node_modules/.bin/prisma db push --schema=prisma/schema.prisma
+docker compose --env-file .env -f deploy/docker-compose.yml run --rm api \
+  node_modules/.bin/prisma migrate resolve --applied 20260801000000_baseline
 ```
+
+Fresh databases need no manual migration step: the API startup runs the
+baseline and all later migrations automatically.
 
 Hit it:
 
